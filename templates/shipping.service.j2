@@ -1,7 +1,7 @@
+
 [Unit]
-Description=RoboShop Shipping Service
+Description=Shipping Service
 After=network-online.target
-Wants=network-online.target
 
 [Service]
 User=roboshop
@@ -10,6 +10,7 @@ Environment="CART_ENDPOINT=cart.sodhichebutha.online:8080"
 Environment="DB_HOST=mysql.sodhichebutha.online"
 Environment="DB_USER=shipping"
 Environment="DB_PASSWORD=RoboShop@1"
+Environment="JAVA_HOME={{ java25_home }}"
 ExecStart=/bin/java -jar /app/shipping.jar
 SyslogIdentifier=shipping
 Restart=on-failure
