@@ -40,3 +40,9 @@ instances:
 
   - name: frontend
     security_group: roboshop-frontend
+
+  - name: payment
+    security_group: roboshop-payment
+
+  - name: dispatch
+    security_group: roboshop-dispatch

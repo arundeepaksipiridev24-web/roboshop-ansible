@@ -1,0 +1,18 @@
+[Unit]
+Description=RoboShop Dispatch Service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=roboshop
+WorkingDirectory=/app
+Environment=AMQP_HOST=rabbitmq.sodhichebutha.online
+Environment=AMQP_USER={{ rabbitmq_user }}
+EnvironmentFile=/etc/roboshop/dispatch.env
+ExecStart=/app/dispatch
+SyslogIdentifier=dispatch
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

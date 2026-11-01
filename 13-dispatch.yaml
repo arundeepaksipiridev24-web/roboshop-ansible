@@ -1,0 +1,106 @@
+---
+- name: Deploy RoboShop Dispatch
+  hosts: dispatch
+  become: true
+  vars:
+    dispatch_url: https://raw.githubusercontent.com/daws-92s/roboshop-documentation/refs/heads/main/artifacts/dispatch-v4.zip
+    rabbitmq_user: roboshop
+  tasks:
+    - name: Require RabbitMQ password from Vault
+      ansible.builtin.assert:
+        that: vault_rabbitmq_password is defined
+        fail_msg: Define vault_rabbitmq_password in an encrypted Ansible Vault file
+      no_log: true
+    - name: Install Go and tools
+      ansible.builtin.dnf:
+        name: [golang, unzip]
+        state: present
+    - name: Check Go version
+      ansible.builtin.command: go version
+      register: go_version
+      changed_when: false
+    - name: Show Go version
+      ansible.builtin.debug:
+        var: go_version.stdout
+    - name: Create application user
+      ansible.builtin.user:
+        name: roboshop
+        system: true
+        home: /app
+        shell: /sbin/nologin
+        create_home: false
+    - name: Create application directory
+      ansible.builtin.file:
+        path: /app
+        state: directory
+        mode: '0755'
+    - name: Download Dispatch archive
+      ansible.builtin.get_url:
+        url: "{{ dispatch_url }}"
+        dest: /tmp/dispatch-v4.zip
+        mode: '0644'
+      register: archive
+    - name: Check application source
+      ansible.builtin.stat:
+        path: /app/go.mod
+      register: source
+    - name: Extract application
+      ansible.builtin.unarchive:
+        src: /tmp/dispatch-v4.zip
+        dest: /app
+        remote_src: true
+      when: archive.changed or not source.stat.exists
+      register: extracted
+    - name: Check compiled binary
+      ansible.builtin.stat:
+        path: /app/dispatch
+      register: binary
+    - name: Build Dispatch
+      ansible.builtin.command:
+        cmd: go build -o /app/dispatch .
+        chdir: /app
+      environment:
+        GOTOOLCHAIN: auto
+      when: extracted.changed or not binary.stat.exists
+      notify: Restart dispatch
+    - name: Make binary executable
+      ansible.builtin.file:
+        path: /app/dispatch
+        mode: '0755'
+    - name: Create configuration directory
+      ansible.builtin.file:
+        path: /etc/roboshop
+        state: directory
+        mode: '0755'
+    - name: Store RabbitMQ password securely
+      ansible.builtin.copy:
+        dest: /etc/roboshop/dispatch.env
+        content: "AMQP_PASS={{ vault_rabbitmq_password }}\n"
+        owner: root
+        group: roboshop
+        mode: '0640'
+      no_log: true
+      notify: Restart dispatch
+    - name: Install Dispatch systemd unit
+      ansible.builtin.template:
+        src: templates/dispatch.service.j2
+        dest: /etc/systemd/system/dispatch.service
+        mode: '0644'
+      notify: Restart dispatch
+    - name: Start Dispatch service
+      ansible.builtin.systemd_service:
+        name: dispatch
+        state: started
+        enabled: true
+        daemon_reload: true
+    - name: Apply pending restarts
+      ansible.builtin.meta: flush_handlers
+    - name: Verify Dispatch service
+      ansible.builtin.command: systemctl is-active dispatch
+      changed_when: false
+  handlers:
+    - name: Restart dispatch
+      ansible.builtin.systemd_service:
+        name: dispatch
+        state: restarted
+        daemon_reload: true
