@@ -3,18 +3,54 @@
   hosts: localhost
   connection: local
   gather_facts: false
+  become: false
 
   vars_files:
     - group_vars/all.yaml
 
   vars:
     route53_zone_id: "Z047542739NDVFK4NND1"
+    aws_cli: /usr/local/bin/aws
+    route53_ttl: 1
+
+  environment:
+    PATH: "/usr/local/bin:/usr/bin:/bin"
 
   tasks:
+    - name: Verify AWS CLI installation
+      ansible.builtin.command:
+        argv:
+          - "{{ aws_cli }}"
+          - --version
+      register: aws_cli_version
+      changed_when: false
+
+    - name: Display AWS CLI version
+      ansible.builtin.debug:
+        var: aws_cli_version.stdout
+
+    - name: Verify AWS authentication
+      ansible.builtin.command:
+        argv:
+          - "{{ aws_cli }}"
+          - sts
+          - get-caller-identity
+          - --region
+          - "{{ aws_region }}"
+          - --output
+          - json
+      register: aws_identity
+      changed_when: false
+      no_log: true
+
+    - name: Confirm AWS authentication
+      ansible.builtin.debug:
+        msg: "AWS authentication successful"
+
     - name: Get Route 53 hosted zone details
       ansible.builtin.command:
         argv:
-          - aws
+          - "{{ aws_cli }}"
           - route53
           - get-hosted-zone
           - --id
@@ -27,15 +63,18 @@
     - name: Validate hosted zone name
       ansible.builtin.assert:
         that:
-          - (zone_response.stdout | from_json).HostedZone.Name == (domain_name ~ '.')
-        fail_msg: "Hosted zone does not match {{ domain_name }}"
+          - >-
+            (zone_response.stdout | from_json).HostedZone.Name
+            == (domain_name ~ '.')
+        fail_msg: >-
+          Hosted zone {{ route53_zone_id }}
+          does not match {{ domain_name }}
 
     - name: Find running RoboShop EC2 instances
       amazon.aws.ec2_instance_info:
         region: "{{ aws_region }}"
         filters:
           "tag:Name": "{{ item.name }}"
-          "tag:Project": roboshop
           instance-state-name:
             - running
       loop: "{{ instances }}"
@@ -47,11 +86,17 @@
       ansible.builtin.assert:
         that:
           - item.instances | length == 1
-          - (item.instances[0].private_ip_address | default('')) | length > 0
+          - >-
+            (item.instances[0].private_ip_address
+            | default('')) | length > 0
           - >-
             item.item.name != 'frontend' or
-            (item.instances[0].public_ip_address | default('') | length > 0)
-        fail_msg: "Missing or duplicate EC2 instance/IP for {{ item.item.name }}"
+            (item.instances[0].public_ip_address
+            | default('') | length > 0)
+        fail_msg: >-
+          Missing or duplicate running EC2 instance,
+          private IP, or frontend public IP for
+          {{ item.item.name }}
       loop: "{{ ec2_lookup.results }}"
       loop_control:
         label: "{{ item.item.name }}"
@@ -61,9 +106,11 @@
         msg: >-
           {{ item.item.name }}.{{ domain_name }}
           ->
-          {{ item.instances[0].public_ip_address
-             if item.item.name == 'frontend'
-             else item.instances[0].private_ip_address }}
+          {{
+            item.instances[0].public_ip_address
+            if item.item.name == 'frontend'
+            else item.instances[0].private_ip_address
+          }}
       loop: "{{ ec2_lookup.results }}"
       loop_control:
         label: "{{ item.item.name }}"
@@ -71,15 +118,17 @@
     - name: Create or update service DNS records
       amazon.aws.route53:
         state: present
-        overwrite: true
-        hosted_zone_id: "{{ route53_zone_id }}"
+        zone: "{{ domain_name }}"
         record: "{{ item.item.name }}.{{ domain_name }}"
         type: A
-        ttl: 1
+        ttl: "{{ route53_ttl }}"
         value: >-
-          {{ item.instances[0].public_ip_address
-             if item.item.name == 'frontend'
-             else item.instances[0].private_ip_address }}
+          {{
+            item.instances[0].public_ip_address
+            if item.item.name == 'frontend'
+            else item.instances[0].private_ip_address
+          }}
+        overwrite: true
         wait: true
       loop: "{{ ec2_lookup.results }}"
       loop_control:
@@ -93,15 +142,15 @@
         label: "{{ item.item.name }}"
       when: item.item.name == 'frontend'
 
-    - name: Create root domain A record
+    - name: Create or update root domain A record
       amazon.aws.route53:
         state: present
-        overwrite: true
-        hosted_zone_id: "{{ route53_zone_id }}"
+        zone: "{{ domain_name }}"
         record: "{{ domain_name }}"
         type: A
-        ttl: 1
+        ttl: "{{ route53_ttl }}"
         value: "{{ frontend_ec2.public_ip_address }}"
+        overwrite: true
         wait: true
       when: frontend_ec2 is defined
 
@@ -113,3 +162,16 @@
       loop: "{{ ec2_lookup.results }}"
       loop_control:
         label: "{{ item.item.name }}"
+
+    - name: Display root domain DNS
+      ansible.builtin.debug:
+        msg: >-
+          {{ domain_name }}
+          -> {{ frontend_ec2.public_ip_address }}
+      when: frontend_ec2 is defined
+
+    - name: Display completion message
+      ansible.builtin.debug:
+        msg: >-
+          RoboShop Route 53 DNS configuration
+          completed successfully
