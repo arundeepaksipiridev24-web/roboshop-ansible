@@ -1,0 +1,57 @@
+---
+- name: Install and configure MongoDB 7.0
+  hosts: mongodb
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Copy MongoDB repository file
+      ansible.builtin.copy:
+        src: repos/mongo.repo
+        dest: /etc/yum.repos.d/mongo.repo
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install MongoDB
+      ansible.builtin.dnf:
+        name: mongodb-org
+        state: present
+
+    - name: Enable and start MongoDB service
+      ansible.builtin.systemd_service:
+        name: mongod
+        enabled: true
+        state: started
+
+    - name: Allow MongoDB remote connections
+      ansible.builtin.replace:
+        path: /etc/mongod.conf
+        regexp: '127\.0\.0\.1'
+        replace: "0.0.0.0"
+      notify: Restart MongoDB
+
+    - name: Apply MongoDB configuration changes
+      ansible.builtin.meta: flush_handlers
+
+    - name: Verify MongoDB service
+      ansible.builtin.command:
+        cmd: systemctl is-active mongod
+      register: mongodb_status
+      changed_when: false
+
+    - name: Verify MongoDB listening port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 27017
+        timeout: 30
+
+    - name: Display MongoDB status
+      ansible.builtin.debug:
+        msg: "MongoDB service is {{ mongodb_status.stdout }} and port 27017 is reachable"
+
+  handlers:
+    - name: Restart MongoDB
+      ansible.builtin.systemd_service:
+        name: mongod
+        state: restarted
