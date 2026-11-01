@@ -1,17 +1,23 @@
 
 [Unit]
-Description=Shipping Service
+Description=RoboShop Shipping Service
+Wants=network-online.target
 After=network-online.target
 
 [Service]
+Type=simple
 User=roboshop
+Group=roboshop
 WorkingDirectory=/app
+
 Environment="CART_ENDPOINT=cart.sodhichebutha.online:8080"
-Environment="DB_HOST=mysql.sodhichebutha.online"
+Environment="DB_HOST={{ mysql_host }}"
 Environment="DB_USER=shipping"
-Environment="DB_PASSWORD=RoboShop@1"
+Environment="DB_PASSWORD={{ shipping_db_password }}"
 Environment="JAVA_HOME={{ java25_home }}"
-ExecStart=/bin/java -jar /app/shipping.jar
+
+ExecStart={{ java25_home }}/bin/java -jar /app/shipping.jar
+
 SyslogIdentifier=shipping
 Restart=on-failure
 RestartSec=5
