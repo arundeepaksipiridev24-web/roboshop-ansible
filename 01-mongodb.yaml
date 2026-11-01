@@ -19,7 +19,7 @@
         state: present
 
     - name: Enable and start MongoDB service
-      ansible.builtin.systemd_service:
+      ansible.builtin.systemd:
         name: mongod
         enabled: true
         state: started
@@ -52,6 +52,6 @@
 
   handlers:
     - name: Restart MongoDB
-      ansible.builtin.systemd_service:
+      ansible.builtin.systemd:
         name: mongod
         state: restarted

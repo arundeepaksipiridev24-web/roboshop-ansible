@@ -1,6 +1,4 @@
 ---
 collections:
   - name: ansible.posix
-  - name: community.rabbitmq
   - name: amazon.aws
-  - name: community.mysql

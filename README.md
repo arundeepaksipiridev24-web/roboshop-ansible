@@ -75,3 +75,32 @@ The playbooks check service health after deployment. Open the frontend and use
 **System status** to verify backend connectivity, then place an order to verify
 Payment and Dispatch. The Payment proxy route is included in the default Nginx
 configuration, as documented.
+
+## Delete application instances
+
+Preview the matched instances:
+
+```shell
+ansible-playbook delete-instances.yaml --check
+```
+
+Terminate all matched RoboShop application instances:
+
+```shell
+ansible-playbook delete-instances.yaml
+```
+
+This is permanent termination, including EBS volumes configured to delete on
+termination. The playbook targets only the configured service names in the
+configured VPC with both `Project=roboshop` and `ManagedBy=ansible` tags, as set
+by `01-create-ec2.yaml`. It does not select instances by name alone. Untagged
+older instances are excluded; check the preview if no instances match.
+The control node is excluded unless it has itself been given all those matching
+application tags and a configured service name. No password prompts are added.
+DNS records, security groups, the VPC, retained EBS volumes and Elastic IPs are
+left in place. `main.yaml` never imports the deletion playbook.
+
+Shipping account setup uses the MySQL CLI with SQL on standard input and the
+central credentials. No community.mysql collection or Python MySQL driver is
+required. Passwords and raw database errors remain hidden; a failure reports
+only the client exit status and MySQL error numbers.

@@ -68,7 +68,7 @@
         mode: '0644'
       notify: Restart payment
     - name: Start Payment service
-      ansible.builtin.systemd_service:
+      ansible.builtin.systemd:
         name: payment
         state: started
         enabled: true
@@ -85,7 +85,7 @@
       until: health.status == 200
   handlers:
     - name: Restart payment
-      ansible.builtin.systemd_service:
+      ansible.builtin.systemd:
         name: payment
         state: restarted
         daemon_reload: true

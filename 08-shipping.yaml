@@ -219,18 +219,31 @@
           no_log: true
 
         - name: Configure Shipping database user from central credentials
-          community.mysql.mysql_user:
-            name: shipping
-            host: "%"
-            password: "{{ shipping_db_password }}"
-            priv: "cities.*:ALL"
-            state: present
-            update_password: always
-            login_user: root
-            login_password: "{{ mysql_root_password }}"
-            login_unix_socket: /var/lib/mysql/mysql.sock
+          ansible.builtin.command:
+            argv: [mysql, --user=root, --batch]
+            stdin: |
+              SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES';
+              CREATE USER IF NOT EXISTS 'shipping'@'%' IDENTIFIED BY '{{ shipping_db_password | replace("'", "''") }}';
+              ALTER USER 'shipping'@'%' IDENTIFIED BY '{{ shipping_db_password | replace("'", "''") }}';
+              GRANT ALL PRIVILEGES ON cities.* TO 'shipping'@'%';
+          environment:
+            MYSQL_PWD: "{{ mysql_root_password }}"
           delegate_to: "{{ groups['mysql'][0] }}"
+          register: shipping_user_setup
+          failed_when: false
           no_log: true
+
+        - name: Confirm Shipping database user configuration
+          ansible.builtin.assert:
+            that:
+              - shipping_user_setup.rc == 0
+            fail_msg: >-
+              Shipping database user setup failed (client exit
+              {{ shipping_user_setup.rc }}; MySQL error codes:
+              {{ shipping_user_setup.stderr | default('') | regex_findall('ERROR ([0-9]+)') | join(', ') }}).
+              Check root credentials for error 1045, MySQL socket/service for
+              2002, and account privileges for 1044 or 1227.
+            success_msg: Shipping database user and privileges configured
 
       always:
         - name: Remove temporary SQL files from MySQL server
@@ -273,7 +286,7 @@
       notify: Restart Shipping
 
     - name: Start Shipping
-      ansible.builtin.systemd_service:
+      ansible.builtin.systemd:
         name: shipping
         enabled: true
         state: started
@@ -294,7 +307,7 @@
 
   handlers:
     - name: Restart Shipping
-      ansible.builtin.systemd_service:
+      ansible.builtin.systemd:
         name: shipping
         daemon_reload: true
         state: restarted

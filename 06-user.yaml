@@ -73,7 +73,7 @@
         mode: '0644'
       notify: Restart application
     - name: Enable and start service
-      ansible.builtin.systemd_service:
+      ansible.builtin.systemd:
         name: user
         enabled: true
         state: started
@@ -91,7 +91,7 @@
       until: health.status == 200
   handlers:
     - name: Restart application
-      ansible.builtin.systemd_service:
+      ansible.builtin.systemd:
         name: user
         state: restarted
         daemon_reload: true

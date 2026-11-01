@@ -59,7 +59,7 @@
       ansible.builtin.command: nginx -t
       changed_when: false
     - name: Start and enable Nginx
-      ansible.builtin.systemd_service:
+      ansible.builtin.systemd:
         name: nginx
         enabled: true
         state: started
@@ -71,6 +71,6 @@
         status_code: 200
   handlers:
     - name: Reload Nginx
-      ansible.builtin.systemd_service:
+      ansible.builtin.systemd:
         name: nginx
         state: reloaded

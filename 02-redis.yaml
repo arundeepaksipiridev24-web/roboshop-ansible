@@ -36,7 +36,7 @@
       notify: Restart Redis
 
     - name: Enable and start Redis
-      ansible.builtin.systemd_service:
+      ansible.builtin.systemd:
         name: redis
         enabled: true
         state: started
@@ -56,6 +56,6 @@
 
   handlers:
     - name: Restart Redis
-      ansible.builtin.systemd_service:
+      ansible.builtin.systemd:
         name: redis
         state: restarted

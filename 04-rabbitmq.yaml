@@ -21,22 +21,41 @@
         update_cache: true
 
     - name: Start and enable RabbitMQ
-      ansible.builtin.systemd_service:
+      ansible.builtin.systemd:
         name: rabbitmq-server
         state: started
         enabled: true
 
-    - name: Configure RoboShop RabbitMQ user and permissions
-      community.rabbitmq.rabbitmq_user:
-        user: "{{ rabbitmq_user }}"
-        password: "{{ rabbitmq_password }}"
-        update_password: always
-        vhost: /
-        configure_priv: .*
-        read_priv: .*
-        write_priv: .*
-        state: present
+    - name: List RabbitMQ users
+      ansible.builtin.command:
+        argv: [rabbitmqctl, -q, list_users, --formatter, json]
+      register: rabbitmq_existing_users
+      changed_when: false
+
+    - name: Create the RoboShop RabbitMQ user
+      ansible.builtin.command:
+        argv: [rabbitmqctl, add_user, "{{ rabbitmq_user }}", "{{ rabbitmq_password }}"]
+      when: rabbitmq_user not in (rabbitmq_existing_users.stdout | from_json | map(attribute='user') | list)
       no_log: true
+
+    - name: Check the configured RabbitMQ password
+      ansible.builtin.command:
+        argv: [rabbitmqctl, authenticate_user, "{{ rabbitmq_user }}", "{{ rabbitmq_password }}"]
+      register: rabbitmq_auth
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Apply the password from central credentials when it differs
+      ansible.builtin.command:
+        argv: [rabbitmqctl, change_password, "{{ rabbitmq_user }}", "{{ rabbitmq_password }}"]
+      when: rabbitmq_auth.rc != 0
+      no_log: true
+
+    - name: Grant RoboShop permissions on the default virtual host
+      ansible.builtin.command:
+        argv: [rabbitmqctl, set_permissions, -p, /, "{{ rabbitmq_user }}", ".*", ".*", ".*"]
+      changed_when: false
 
     - name: Verify RabbitMQ version
       ansible.builtin.command:

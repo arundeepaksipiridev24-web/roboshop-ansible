@@ -1,0 +1,64 @@
+---
+# Run separately: ansible-playbook delete-instances.yaml
+# Preview only: ansible-playbook delete-instances.yaml --check
+- name: Terminate Ansible-managed RoboShop application instances
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars_files:
+    - group_vars/all/main.yaml
+  vars:
+    # Must match the VPC used by 01-create-ec2.yaml.
+    vpc_id: vpc-0e7b5f1d5107e4368
+
+  tasks:
+    - name: Find only this project's managed service instances
+      amazon.aws.ec2_instance_info:
+        region: "{{ aws_region }}"
+        filters:
+          vpc-id: "{{ vpc_id }}"
+          "tag:Name": "{{ instances | map(attribute='name') | list }}"
+          "tag:Project": roboshop
+          "tag:ManagedBy": ansible
+          instance-state-name: [pending, running, stopping, stopped]
+      register: teardown_instances
+      check_mode: false
+
+    - name: Validate the discovered instances before termination
+      ansible.builtin.assert:
+        that:
+          - item.vpc_id == vpc_id
+          - item.tags.Name in (instances | map(attribute='name') | list)
+          - item.tags.Project == 'roboshop'
+          - item.tags.ManagedBy == 'ansible'
+        fail_msg: "Instance does not match the configured RoboShop application scope"
+      loop: "{{ teardown_instances.instances }}"
+      loop_control:
+        label: "{{ item.instance_id }}"
+
+    - name: Show exactly which instances will be terminated
+      ansible.builtin.debug:
+        msg: "{{ item.tags.Name }} | {{ item.instance_id }} | {{ item.private_ip_address | default('no private IP') }} | {{ item.state.name }}"
+      loop: "{{ teardown_instances.instances }}"
+      loop_control:
+        label: "{{ item.instance_id }}"
+
+    - name: Terminate the discovered application instances by explicit ID
+      amazon.aws.ec2_instance:
+        region: "{{ aws_region }}"
+        instance_ids: "{{ teardown_instances.instances | map(attribute='instance_id') | list }}"
+        state: terminated
+        wait: true
+        wait_timeout: 600
+      when:
+        - teardown_instances.instances | length > 0
+        - not ansible_check_mode
+
+    - name: Report teardown result
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'Preview only; no instances terminated.' if ansible_check_mode
+             else ('Terminated ' ~ (teardown_instances.instances | length | string) ~ ' matching RoboShop instance(s).') }}
+          DNS records, security groups and the VPC are retained.
+          Instances without the required project/management tags are excluded.

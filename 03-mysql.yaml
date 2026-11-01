@@ -17,11 +17,11 @@
 
     - name: Install MySQL 8.4 server
       ansible.builtin.dnf:
-        name: [mysql-server, python3-PyMySQL]
+        name: mysql-server
         state: present
 
     - name: Start and enable MySQL service
-      ansible.builtin.systemd_service:
+      ansible.builtin.systemd:
         name: mysqld
         state: started
         enabled: true

@@ -82,7 +82,7 @@
         mode: '0644'
       notify: Restart dispatch
     - name: Start Dispatch service
-      ansible.builtin.systemd_service:
+      ansible.builtin.systemd:
         name: dispatch
         state: started
         enabled: true
@@ -94,7 +94,7 @@
       changed_when: false
   handlers:
     - name: Restart dispatch
-      ansible.builtin.systemd_service:
+      ansible.builtin.systemd:
         name: dispatch
         state: restarted
         daemon_reload: true
