@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 User=roboshop
 WorkingDirectory=/app
-Environment="MONGO_URL=mongodb://mongodb.sodhichebutha.online:27017/catalogue"
+Environment="MONGO_URL=mongodb://{{ mongodb_host }}:27017/catalogue"
 ExecStart=/bin/node /app/server.js
 SyslogIdentifier=catalogue
 Restart=on-failure

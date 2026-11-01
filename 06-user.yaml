@@ -4,7 +4,7 @@
   become: true
   vars:
     app_name: user
-    app_url: https://raw.githubusercontent.com/daws-92s/roboshop-documentation/refs/heads/main/artifacts/user-v4.zip
+    app_url: "{{ artifact_base_url }}/user-{{ app_version }}.zip"
   tasks:
     - name: Disable default Node.js module
       ansible.builtin.command: dnf module disable nodejs -y
@@ -46,28 +46,29 @@
     - name: Download application
       ansible.builtin.get_url:
         url: "{{ app_url }}"
-        dest: "/tmp/user-v4.zip"
+        dest: "/tmp/user-{{ app_version }}.zip"
         mode: '0644'
       register: artifact
     - name: Extract application when artifact changes or app is missing
       ansible.builtin.unarchive:
-        src: "/tmp/user-v4.zip"
+        src: "/tmp/user-{{ app_version }}.zip"
         dest: /app
         remote_src: true
         owner: roboshop
         group: roboshop
       when: artifact.changed or not (app_entry.stat.exists | default(false))
+      register: extracted
       notify: Restart application
     - name: Install npm dependencies
       ansible.builtin.command: npm install --no-audit --no-fund
       args:
         chdir: /app
       become_user: roboshop
-      when: artifact.changed or not (node_modules.stat.exists | default(false))
+      when: extracted.changed or not (node_modules.stat.exists | default(false))
       notify: Restart application
     - name: Deploy systemd service
       ansible.builtin.template:
-        src: templates/user.service.j2
+        src: user.service.j2
         dest: /etc/systemd/system/user.service
         mode: '0644'
       notify: Restart application

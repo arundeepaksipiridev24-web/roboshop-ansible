@@ -6,8 +6,8 @@ Wants=network-online.target
 [Service]
 User=roboshop
 WorkingDirectory=/app
-Environment="REDIS_URL=redis://redis.sodhichebutha.online:6379"
-Environment="MONGO_URL=mongodb://mongodb.sodhichebutha.online:27017/users"
+Environment="REDIS_URL=redis://{{ redis_host }}:6379"
+Environment="MONGO_URL=mongodb://{{ mongodb_host }}:27017/users"
 ExecStart=/bin/node /app/server.js
 SyslogIdentifier=user
 Restart=on-failure

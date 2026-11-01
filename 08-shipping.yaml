@@ -5,10 +5,7 @@
   gather_facts: true
 
   vars:
-    mysql_host: mysql.sodhichebutha.online
-    mysql_root_password: "RoboShop@1"
-    shipping_db_password: "RoboShop@1"
-    shipping_url: https://raw.githubusercontent.com/daws-92s/roboshop-documentation/refs/heads/main/artifacts/shipping-v4.zip
+    shipping_url: "{{ artifact_base_url }}/shipping-{{ app_version }}.zip"
 
   tasks:
     - name: Enable Maven 3.9 module
@@ -95,13 +92,13 @@
     - name: Download Shipping artifact
       ansible.builtin.get_url:
         url: "{{ shipping_url }}"
-        dest: /tmp/shipping-v4.zip
+        dest: "/tmp/shipping-{{ app_version }}.zip"
         mode: "0644"
       register: artifact
 
     - name: Extract Shipping artifact
       ansible.builtin.unarchive:
-        src: /tmp/shipping-v4.zip
+        src: "/tmp/shipping-{{ app_version }}.zip"
         dest: /app
         remote_src: true
         owner: roboshop
@@ -152,7 +149,6 @@
         path: "{{ item }}"
       loop:
         - /app/db/master-data.sql
-        - /app/db/app-user.sql
       register: shipping_sql_files
 
     - name: Validate shipping SQL files
@@ -170,7 +166,6 @@
         src: "{{ item }}"
       loop:
         - /app/db/master-data.sql
-        - /app/db/app-user.sql
       register: shipping_sql_contents
       no_log: true
 
@@ -223,31 +218,18 @@
           when: cities_db.stdout | trim != 'cities'
           no_log: true
 
-        - name: Check shipping database user
-          ansible.builtin.command:
-            argv:
-              - mysql
-              - -u
-              - root
-              - --batch
-              - --skip-column-names
-              - -e
-              - "SELECT User FROM mysql.user WHERE User='shipping' AND Host='%'"
-          environment:
-            MYSQL_PWD: "{{ mysql_root_password }}"
+        - name: Configure Shipping database user from central credentials
+          community.mysql.mysql_user:
+            name: shipping
+            host: "%"
+            password: "{{ shipping_db_password }}"
+            priv: "cities.*:ALL"
+            state: present
+            update_password: always
+            login_user: root
+            login_password: "{{ mysql_root_password }}"
+            login_unix_socket: /var/lib/mysql/mysql.sock
           delegate_to: "{{ groups['mysql'][0] }}"
-          register: shipping_user
-          changed_when: false
-          no_log: true
-
-        - name: Create shipping application database user
-          ansible.builtin.shell: >-
-            mysql -u root
-            < "{{ mysql_sql_dir.path }}/app-user.sql"
-          environment:
-            MYSQL_PWD: "{{ mysql_root_password }}"
-          delegate_to: "{{ groups['mysql'][0] }}"
-          when: shipping_user.stdout | trim != 'shipping'
           no_log: true
 
       always:
@@ -282,7 +264,7 @@
 
     - name: Deploy Shipping systemd unit
       ansible.builtin.template:
-        src: templates/shipping.service.j2
+        src: shipping.service.j2
         dest: /etc/systemd/system/shipping.service
         owner: root
         group: root

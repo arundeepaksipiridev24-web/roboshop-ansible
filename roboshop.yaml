@@ -1,0 +1,4 @@
+---
+# Infrastructure entry point, as in roboshop-ansible-v1.
+- import_playbook: 01-create-ec2.yaml
+- import_playbook: 02-create-route53.yaml

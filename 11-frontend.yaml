@@ -24,8 +24,8 @@
       register: frontend_index
     - name: Download frontend archive
       ansible.builtin.get_url:
-        url: https://raw.githubusercontent.com/daws-92s/roboshop-documentation/refs/heads/main/artifacts/frontend-v4.zip
-        dest: /tmp/frontend-v4.zip
+        url: "{{ artifact_base_url }}/frontend-{{ app_version }}.zip"
+        dest: "/tmp/frontend-{{ app_version }}.zip"
         mode: '0644'
       register: frontend_archive
     - name: Remove old frontend content before deployment
@@ -33,7 +33,7 @@
       when: frontend_archive.changed or not frontend_index.stat.exists
     - name: Deploy website
       ansible.builtin.unarchive:
-        src: /tmp/frontend-v4.zip
+        src: "/tmp/frontend-{{ app_version }}.zip"
         dest: /usr/share/nginx/html
         remote_src: true
       when: frontend_archive.changed or not frontend_index.stat.exists
@@ -45,7 +45,7 @@
         mode: '0755'
     - name: Install reverse proxy configuration
       ansible.builtin.template:
-        src: templates/roboshop.conf.j2
+        src: roboshop.conf.j2
         dest: /etc/nginx/default.d/roboshop.conf
         mode: '0644'
       notify: Reload Nginx

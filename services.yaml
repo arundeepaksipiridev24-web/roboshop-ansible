@@ -1,0 +1,12 @@
+---
+- import_playbook: 01-mongodb.yaml
+- import_playbook: 02-redis.yaml
+- import_playbook: 03-mysql.yaml
+- import_playbook: 04-rabbitmq.yaml
+- import_playbook: 05-catalogue.yaml
+- import_playbook: 06-user.yaml
+- import_playbook: 07-cart.yaml
+- import_playbook: 08-shipping.yaml
+- import_playbook: 09-payment.yaml
+- import_playbook: 10-dispatch.yaml
+- import_playbook: 11-frontend.yaml

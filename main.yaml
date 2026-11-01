@@ -1,16 +1,4 @@
 ---
-- import_playbook: 00-check-aws.yaml
-- import_playbook: 01-create-ec2.yaml
-- import_playbook: 02-create-route53.yaml
+- import_playbook: roboshop.yaml
 - import_playbook: 00-setup-ssh.yaml
-- import_playbook: 03-mongodb.yaml
-- import_playbook: 04-redis.yaml
-- import_playbook: 05-mysql.yaml
-- import_playbook: 06-rabbitmq.yaml
-- import_playbook: 07-catalogue.yaml
-- import_playbook: 08-user.yaml
-- import_playbook: 09-cart.yaml
-- import_playbook: 10-shipping.yaml
-- import_playbook: 11-frontend.yaml
-- import_playbook: 12-payment.yaml
-- import_playbook: 13-dispatch.yaml
+- import_playbook: services.yaml

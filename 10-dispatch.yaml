@@ -3,14 +3,8 @@
   hosts: dispatch
   become: true
   vars:
-    dispatch_url: https://raw.githubusercontent.com/daws-92s/roboshop-documentation/refs/heads/main/artifacts/dispatch-v4.zip
-    rabbitmq_user: roboshop
+    dispatch_url: "{{ artifact_base_url }}/dispatch-{{ app_version }}.zip"
   tasks:
-    - name: Require RabbitMQ password from Vault
-      ansible.builtin.assert:
-        that: vault_rabbitmq_password is defined
-        fail_msg: Define vault_rabbitmq_password in an encrypted Ansible Vault file
-      no_log: true
     - name: Install Go and tools
       ansible.builtin.dnf:
         name: [golang, unzip]
@@ -37,7 +31,7 @@
     - name: Download Dispatch archive
       ansible.builtin.get_url:
         url: "{{ dispatch_url }}"
-        dest: /tmp/dispatch-v4.zip
+        dest: "/tmp/dispatch-{{ app_version }}.zip"
         mode: '0644'
       register: archive
     - name: Check application source
@@ -46,7 +40,7 @@
       register: source
     - name: Extract application
       ansible.builtin.unarchive:
-        src: /tmp/dispatch-v4.zip
+        src: "/tmp/dispatch-{{ app_version }}.zip"
         dest: /app
         remote_src: true
       when: archive.changed or not source.stat.exists
@@ -75,7 +69,7 @@
     - name: Store RabbitMQ password securely
       ansible.builtin.copy:
         dest: /etc/roboshop/dispatch.env
-        content: "AMQP_PASS={{ vault_rabbitmq_password }}\n"
+        content: "AMQP_PASS={{ rabbitmq_password }}\n"
         owner: root
         group: roboshop
         mode: '0640'
@@ -83,7 +77,7 @@
       notify: Restart dispatch
     - name: Install Dispatch systemd unit
       ansible.builtin.template:
-        src: templates/dispatch.service.j2
+        src: dispatch.service.j2
         dest: /etc/systemd/system/dispatch.service
         mode: '0644'
       notify: Restart dispatch

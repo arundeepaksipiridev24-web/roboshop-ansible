@@ -1,10 +1,61 @@
 ---
+- name: Prepare the control node SSH key
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+  tasks:
+    - name: Create control node SSH directory
+      ansible.builtin.file:
+        path: /home/ec2-user/.ssh
+        state: directory
+        mode: "0700"
+
+    - name: Generate a key without an interactive passphrase prompt
+      ansible.builtin.command:
+        argv:
+          - ssh-keygen
+          - -t
+          - rsa
+          - -b
+          - "4096"
+          - -N
+          - ""
+          - -f
+          - /home/ec2-user/.ssh/id_rsa
+        creates: /home/ec2-user/.ssh/id_rsa
+
+    - name: Check the control node public key
+      ansible.builtin.stat:
+        path: /home/ec2-user/.ssh/id_rsa.pub
+      register: control_public_key
+
+    - name: Recover public key from an existing private key
+      ansible.builtin.command:
+        argv: [ssh-keygen, -y, -P, "", -f, /home/ec2-user/.ssh/id_rsa]
+      register: recovered_public_key
+      changed_when: false
+      no_log: true
+      when: not control_public_key.stat.exists
+
+    - name: Save recovered public key
+      ansible.builtin.copy:
+        content: "{{ recovered_public_key.stdout }}\n"
+        dest: /home/ec2-user/.ssh/id_rsa.pub
+        mode: "0644"
+      when: not control_public_key.stat.exists
+
 - name: Configure passwordless SSH for all RoboShop servers
   hosts: all
   become: true
   gather_facts: false
 
   tasks:
+    - name: Wait for each instance to accept Ansible connections
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+        delay: 5
+
     - name: Ensure ec2-user SSH directory exists
       ansible.builtin.file:
         path: /home/ec2-user/.ssh

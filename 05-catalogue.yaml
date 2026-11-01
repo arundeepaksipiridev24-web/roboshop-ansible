@@ -1,10 +1,10 @@
 ---
-- name: Deploy Cart
-  hosts: cart
+- name: Deploy Catalogue
+  hosts: catalogue
   become: true
   vars:
-    app_name: cart
-    app_url: https://raw.githubusercontent.com/daws-92s/roboshop-documentation/refs/heads/main/artifacts/cart-v4.zip
+    app_name: catalogue
+    app_url: "{{ artifact_base_url }}/catalogue-{{ app_version }}.zip"
   tasks:
     - name: Disable default Node.js module
       ansible.builtin.command: dnf module disable nodejs -y
@@ -46,34 +46,68 @@
     - name: Download application
       ansible.builtin.get_url:
         url: "{{ app_url }}"
-        dest: "/tmp/cart-v4.zip"
+        dest: "/tmp/catalogue-{{ app_version }}.zip"
         mode: '0644'
       register: artifact
     - name: Extract application when artifact changes or app is missing
       ansible.builtin.unarchive:
-        src: "/tmp/cart-v4.zip"
+        src: "/tmp/catalogue-{{ app_version }}.zip"
         dest: /app
         remote_src: true
         owner: roboshop
         group: roboshop
       when: artifact.changed or not (app_entry.stat.exists | default(false))
+      register: extracted
       notify: Restart application
     - name: Install npm dependencies
       ansible.builtin.command: npm install --no-audit --no-fund
       args:
         chdir: /app
       become_user: roboshop
-      when: artifact.changed or not (node_modules.stat.exists | default(false))
+      when: extracted.changed or not (node_modules.stat.exists | default(false))
       notify: Restart application
+    - name: Copy MongoDB repository
+      ansible.builtin.copy:
+        src: mongo.repo
+        dest: /etc/yum.repos.d/mongo.repo
+        mode: '0644'
+    - name: Install MongoDB shell
+      ansible.builtin.dnf:
+        name: mongodb-mongosh
+        state: present
+    - name: Count existing catalogue products
+      ansible.builtin.command:
+        argv:
+          - mongosh
+          - --host
+          - "{{ mongodb_host }}"
+          - --quiet
+          - --eval
+          - 'db.getSiblingDB("catalogue").products.countDocuments({})'
+      register: product_count
+      changed_when: false
+    - name: Initialize catalogue master data once
+      ansible.builtin.command:
+        argv:
+          - mongosh
+          - --host
+          - "{{ mongodb_host }}"
+          - /app/db/master-data.js
+      when: product_count.stdout | trim == '0'
+      register: master_loaded
+    - name: Assert product data exists
+      ansible.builtin.assert:
+        that: (product_count.stdout | trim | int) > 0 or master_loaded.changed | default(false)
+        fail_msg: 'Catalogue master data missing'
     - name: Deploy systemd service
       ansible.builtin.template:
-        src: templates/cart.service.j2
-        dest: /etc/systemd/system/cart.service
+        src: catalogue.service.j2
+        dest: /etc/systemd/system/catalogue.service
         mode: '0644'
       notify: Restart application
     - name: Enable and start service
       ansible.builtin.systemd_service:
-        name: cart
+        name: catalogue
         enabled: true
         state: started
         daemon_reload: true
@@ -91,6 +125,6 @@
   handlers:
     - name: Restart application
       ansible.builtin.systemd_service:
-        name: cart
+        name: catalogue
         state: restarted
         daemon_reload: true

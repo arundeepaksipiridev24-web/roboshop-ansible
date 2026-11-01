@@ -7,7 +7,7 @@
   tasks:
     - name: Copy MongoDB repository file
       ansible.builtin.copy:
-        src: repos/mongo.repo
+        src: mongo.repo
         dest: /etc/yum.repos.d/mongo.repo
         owner: root
         group: root

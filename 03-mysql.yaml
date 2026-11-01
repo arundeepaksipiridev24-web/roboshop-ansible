@@ -4,9 +4,6 @@
   become: true
   gather_facts: false
 
-  vars:
-    mysql_root_password: "RoboShop@1"
-
   tasks:
     - name: Enable MySQL 8.4 module
       ansible.builtin.command:
@@ -20,7 +17,7 @@
 
     - name: Install MySQL 8.4 server
       ansible.builtin.dnf:
-        name: mysql-server
+        name: [mysql-server, python3-PyMySQL]
         state: present
 
     - name: Start and enable MySQL service
@@ -100,7 +97,7 @@
         fail_msg: >-
           MySQL root authentication failed.
           The existing MySQL root password may be
-          different from the password in this YAML.
+          different from mysql_root_password in group_vars/all/credentials.yaml.
           Verify the actual root credentials.
         success_msg: "MySQL root authentication successful"
 

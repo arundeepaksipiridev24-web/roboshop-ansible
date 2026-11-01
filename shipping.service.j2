@@ -10,7 +10,7 @@ User=roboshop
 Group=roboshop
 WorkingDirectory=/app
 
-Environment="CART_ENDPOINT=cart.sodhichebutha.online:8080"
+Environment="CART_ENDPOINT={{ cart_host }}:8080"
 Environment="DB_HOST={{ mysql_host }}"
 Environment="DB_USER=shipping"
 Environment="DB_PASSWORD={{ shipping_db_password }}"

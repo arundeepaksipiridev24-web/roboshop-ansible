@@ -1,3 +1,0 @@
-ansible_password: "DevOps321"
-ansible_become_password: "DevOps321"
-vault_rabbitmq_password: "roboshop123"

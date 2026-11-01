@@ -3,14 +3,8 @@
   hosts: payment
   become: true
   vars:
-    payment_url: https://raw.githubusercontent.com/daws-92s/roboshop-documentation/refs/heads/main/artifacts/payment-v4.zip
-    rabbitmq_user: roboshop
+    payment_url: "{{ artifact_base_url }}/payment-{{ app_version }}.zip"
   tasks:
-    - name: Require RabbitMQ password from Vault
-      ansible.builtin.assert:
-        that: vault_rabbitmq_password is defined
-        fail_msg: Define vault_rabbitmq_password in an encrypted Ansible Vault file
-      no_log: true
     - name: Install Python and tools
       ansible.builtin.dnf:
         name: [python3.14, python3.14-pip, unzip]
@@ -30,7 +24,7 @@
     - name: Download Payment archive
       ansible.builtin.get_url:
         url: "{{ payment_url }}"
-        dest: /tmp/payment-v4.zip
+        dest: "/tmp/payment-{{ app_version }}.zip"
         mode: '0644'
       register: archive
     - name: Check application source
@@ -39,7 +33,7 @@
       register: source
     - name: Extract application
       ansible.builtin.unarchive:
-        src: /tmp/payment-v4.zip
+        src: "/tmp/payment-{{ app_version }}.zip"
         dest: /app
         remote_src: true
       when: archive.changed or not source.stat.exists
@@ -61,7 +55,7 @@
     - name: Store RabbitMQ password securely
       ansible.builtin.copy:
         dest: /etc/roboshop/payment.env
-        content: "AMQP_PASS={{ vault_rabbitmq_password }}\n"
+        content: "AMQP_PASS={{ rabbitmq_password }}\n"
         owner: root
         group: roboshop
         mode: '0640'
@@ -69,7 +63,7 @@
       notify: Restart payment
     - name: Install Payment systemd unit
       ansible.builtin.template:
-        src: templates/payment.service.j2
+        src: payment.service.j2
         dest: /etc/systemd/system/payment.service
         mode: '0644'
       notify: Restart payment
