@@ -13,28 +13,27 @@ common_sg: roboshop-common
 # Ansible SSH User
 ansible_user: ec2-user
 
-# EC2 Instances and existing Security Groups
 instances:
   - name: mongodb
-    security_group: mongodb-roboshop
+    security_group: roboshop-mongodb
 
   - name: redis
-    security_group: redis-roboshop
+    security_group: roboshop-redis
 
   - name: mysql
-    security_group: mysql-roboshop
+    security_group: roboshop-mysql
 
   - name: rabbitmq
-    security_group: rabbitmq-roboshop
+    security_group: roboshop-rabbitmq
 
   - name: catalogue
-    security_group: catalogue-roboshop
+    security_group: roboshop-catalogue
 
   - name: user
-    security_group: user-roboshop
+    security_group: roboshop-user
 
   - name: cart
-    security_group: cart-roboshop
+    security_group: roboshop-cart
 
   - name: shipping
-    security_group: shipping-roboshop
+    security_group: roboshop-shipping
