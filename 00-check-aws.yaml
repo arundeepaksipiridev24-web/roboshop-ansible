@@ -1,40 +1,49 @@
 ---
-- name: Check AWS Account and EC2 Details
-  hosts: localhost
-  connection: local
+- name: Configure passwordless SSH for RoboShop servers
+  hosts: mysql
+  become: true
   gather_facts: false
 
-  vars_files:
-    - group_vars/all.yaml
+  vars:
+    ssh_user: ec2-user
+    ssh_home: /home/ec2-user
+    public_key_path: /home/ec2-user/.ssh/id_rsa.pub
 
   tasks:
-    - name: Check AWS Account Identity
-      ansible.builtin.command:
-        cmd: aws sts get-caller-identity
-      register: aws_identity
-      changed_when: false
+    - name: Ensure SSH directory exists
+      ansible.builtin.file:
+        path: "{{ ssh_home }}/.ssh"
+        state: directory
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
+        mode: "0700"
 
-    - name: Print AWS Account Identity
+    - name: Ensure authorized_keys file exists
+      ansible.builtin.file:
+        path: "{{ ssh_home }}/.ssh/authorized_keys"
+        state: touch
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
+        mode: "0600"
+        modification_time: preserve
+        access_time: preserve
+
+    - name: Install Ansible control node public key
+      ansible.posix.authorized_key:
+        user: "{{ ssh_user }}"
+        state: present
+        manage_dir: false
+        key: "{{ lookup('file', public_key_path) }}"
+
+    - name: Verify authorized_keys permissions
+      ansible.builtin.stat:
+        path: "{{ ssh_home }}/.ssh/authorized_keys"
+      register: ssh_key_status
+
+    - name: Display SSH configuration status
       ansible.builtin.debug:
-        msg: "{{ aws_identity.stdout }}"
-
-    - name: Get Running EC2 Instance Details
-      ansible.builtin.command:
-        argv:
-          - aws
-          - ec2
-          - describe-instances
-          - --filters
-          - Name=instance-state-name,Values=running
-          - --query
-          - "Reservations[].Instances[].[InstanceId,VpcId,SubnetId,PrivateIpAddress,Tags[?Key=='Name'].Value|[0]]"
-          - --output
-          - json
-          - --region
-          - "{{ aws_region }}"
-      register: ec2_details
-      changed_when: false
-
-    - name: Print Running EC2 Details
-      ansible.builtin.debug:
-        msg: "{{ ec2_details.stdout | from_json }}"
+        msg:
+          - "SSH user: {{ ssh_user }}"
+          - "authorized_keys exists: {{ ssh_key_status.stat.exists }}"
+          - "Permissions: {{ ssh_key_status.stat.mode }}"
+          - "SSH public key installed successfully"
