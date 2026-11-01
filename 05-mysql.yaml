@@ -1,25 +1,21 @@
 ---
-- name: Install and configure MySQL
+- name: Install and configure MySQL 8.4
   hosts: mysql
   become: true
-  gather_facts: true
 
   tasks:
-    - name: Copy MySQL repository file
-      ansible.builtin.copy:
-        src: repos/mysql.repo
-        dest: /etc/yum.repos.d/mysql.repo
-        owner: root
-        group: root
-        mode: "0644"
+    - name: Enable MySQL 8.4 module
+      ansible.builtin.command:
+        cmd: dnf module enable mysql:8.4 -y
+      register: mysql_module
+      changed_when: "'Enabling module streams' in mysql_module.stdout"
 
     - name: Install MySQL server
       ansible.builtin.dnf:
-        name: mysql-community-server
+        name: mysql-server
         state: present
-        disable_gpg_check: false
 
-    - name: Enable and start MySQL service
+    - name: Enable and start MySQL
       ansible.builtin.systemd_service:
         name: mysqld
         enabled: true
@@ -31,12 +27,12 @@
         port: 3306
         timeout: 30
 
-    - name: Check MySQL service
+    - name: Verify MySQL version
       ansible.builtin.command:
-        cmd: systemctl is-active mysqld
-      register: mysql_status
+        cmd: mysql --version
+      register: mysql_version
       changed_when: false
 
-    - name: Display MySQL status
+    - name: Display MySQL version
       ansible.builtin.debug:
-        msg: "MySQL service status: {{ mysql_status.stdout }}"
+        msg: "{{ mysql_version.stdout }}"

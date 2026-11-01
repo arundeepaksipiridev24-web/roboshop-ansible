@@ -1,52 +1,58 @@
 ---
-- name: Install and configure Redis
+- name: Install and configure Redis 7
   hosts: redis
   become: true
-  gather_facts: true
 
   tasks:
+    - name: Disable default Redis module
+      ansible.builtin.command:
+        cmd: dnf module disable redis -y
+      register: redis_disable
+      changed_when: "'Disabling modules' in redis_disable.stdout"
+
+    - name: Enable Redis 7 module
+      ansible.builtin.command:
+        cmd: dnf module enable redis:7 -y
+      register: redis_enable
+      changed_when: "'Enabling module streams' in redis_enable.stdout"
+
     - name: Install Redis
       ansible.builtin.dnf:
         name: redis
         state: present
 
-    - name: Allow Redis remote connections
+    - name: Configure Redis bind address
       ansible.builtin.lineinfile:
         path: /etc/redis/redis.conf
-        regexp: '^\s*bind\s+'
-        line: "bind 0.0.0.0"
+        regexp: "^bind "
+        line: "bind 0.0.0.0 -::1"
       notify: Restart Redis
 
-    - name: Disable Redis protected mode for lab
+    - name: Disable protected mode for lab
       ansible.builtin.lineinfile:
         path: /etc/redis/redis.conf
-        regexp: '^\s*protected-mode\s+'
+        regexp: "^protected-mode "
         line: "protected-mode no"
       notify: Restart Redis
 
     - name: Enable and start Redis
       ansible.builtin.systemd_service:
         name: redis
-        state: started
         enabled: true
+        state: started
 
-    - name: Apply Redis configuration
+    - name: Apply configuration
       ansible.builtin.meta: flush_handlers
 
-    - name: Verify Redis port
-      ansible.builtin.wait_for:
-        host: 127.0.0.1
-        port: 6379
-        timeout: 30
-
-    - name: Check Redis service
-      ansible.builtin.command: systemctl is-active redis
-      register: redis_status
+    - name: Verify Redis
+      ansible.builtin.command: redis-cli ping
+      register: redis_ping
       changed_when: false
+      failed_when: redis_ping.stdout != "PONG"
 
-    - name: Display Redis status
+    - name: Display result
       ansible.builtin.debug:
-        msg: "Redis status: {{ redis_status.stdout }}"
+        msg: "Redis response: {{ redis_ping.stdout }}"
 
   handlers:
     - name: Restart Redis
