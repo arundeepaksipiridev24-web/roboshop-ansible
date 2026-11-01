@@ -1,33 +1,26 @@
 ---
-- name: Install and configure MySQL 8.4
+- name: Configure existing MySQL Community server
   hosts: mysql
   become: true
 
   tasks:
-    - name: Enable MySQL 8.4 module
+    - name: Check MySQL server package
       ansible.builtin.command:
-        cmd: dnf module enable mysql:8.4 -y
-      register: mysql_module
-      changed_when: "'Enabling module streams' in mysql_module.stdout"
+        cmd: rpm -q mysql-community-server
+      register: mysql_package
+      changed_when: false
 
-    - name: Install MySQL server
-      ansible.builtin.dnf:
-        name: mysql-server
-        state: present
+    - name: Display installed package
+      ansible.builtin.debug:
+        msg: "{{ mysql_package.stdout }}"
 
-    - name: Enable and start MySQL
+    - name: Start and enable MySQL
       ansible.builtin.systemd_service:
         name: mysqld
-        enabled: true
         state: started
+        enabled: true
 
-    - name: Verify MySQL port
-      ansible.builtin.wait_for:
-        host: 127.0.0.1
-        port: 3306
-        timeout: 30
-
-    - name: Verify MySQL version
+    - name: Check MySQL version
       ansible.builtin.command:
         cmd: mysql --version
       register: mysql_version
