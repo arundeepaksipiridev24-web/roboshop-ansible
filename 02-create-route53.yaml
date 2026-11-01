@@ -68,7 +68,7 @@
       amazon.aws.route53:
         state: present
         overwrite: true
-        zone_id: "{{ route53_zone_id }}"
+        hosted_zone_id: "{{ route53_zone_id }}"
         record: "{{ item.item.name }}.{{ domain_name }}"
         type: A
         ttl: 60
