@@ -1,0 +1,42 @@
+---
+- name: Install and configure MySQL
+  hosts: mysql
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Copy MySQL repository file
+      ansible.builtin.copy:
+        src: repos/mysql.repo
+        dest: /etc/yum.repos.d/mysql.repo
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install MySQL server
+      ansible.builtin.dnf:
+        name: mysql-community-server
+        state: present
+        disable_gpg_check: false
+
+    - name: Enable and start MySQL service
+      ansible.builtin.systemd_service:
+        name: mysqld
+        enabled: true
+        state: started
+
+    - name: Verify MySQL port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 3306
+        timeout: 30
+
+    - name: Check MySQL service
+      ansible.builtin.command:
+        cmd: systemctl is-active mysqld
+      register: mysql_status
+      changed_when: false
+
+    - name: Display MySQL status
+      ansible.builtin.debug:
+        msg: "MySQL service status: {{ mysql_status.stdout }}"
