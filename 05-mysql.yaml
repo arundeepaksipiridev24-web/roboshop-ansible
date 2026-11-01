@@ -8,24 +8,6 @@
     mysql_root_password: "RoboShop@1"
 
   tasks:
-    - name: Check installed MySQL Community packages
-      ansible.builtin.shell: |
-        rpm -qa | grep '^mysql-community-' || true
-      register: community_packages
-      changed_when: false
-
-    - name: Stop existing MySQL service if conflicting packages exist
-      ansible.builtin.systemd_service:
-        name: mysqld
-        state: stopped
-      when: community_packages.stdout_lines | length > 0
-
-    - name: Remove conflicting MySQL Community packages
-      ansible.builtin.dnf:
-        name: "{{ community_packages.stdout_lines }}"
-        state: absent
-      when: community_packages.stdout_lines | length > 0
-
     - name: Enable MySQL 8.4 module
       ansible.builtin.command:
         argv:
@@ -41,13 +23,13 @@
         name: mysql-server
         state: present
 
-    - name: Start and enable MySQL
+    - name: Start and enable MySQL service
       ansible.builtin.systemd_service:
         name: mysqld
         state: started
         enabled: true
 
-    - name: Check root authentication with configured password
+    - name: Check MySQL root login with configured password
       ansible.builtin.command:
         argv:
           - mysql
@@ -56,15 +38,15 @@
           - --batch
           - --skip-column-names
           - -e
-          - SELECT 1
+          - "SELECT 1;"
       environment:
         MYSQL_PWD: "{{ mysql_root_password }}"
-      register: root_password_check
+      register: mysql_password_login
       changed_when: false
       failed_when: false
       no_log: true
 
-    - name: Check whether passwordless root authentication works
+    - name: Check passwordless root login
       ansible.builtin.command:
         argv:
           - mysql
@@ -73,27 +55,27 @@
           - --batch
           - --skip-column-names
           - -e
-          - SELECT 1
+          - "SELECT 1;"
       environment:
         MYSQL_PWD: ""
-      register: passwordless_root_check
+      register: mysql_passwordless_login
       changed_when: false
       failed_when: false
       no_log: true
-      when: root_password_check.rc != 0
+      when: mysql_password_login.rc != 0
 
-    - name: Set initial MySQL root password
+    - name: Configure initial MySQL root password
       ansible.builtin.command:
         argv:
           - mysql_secure_installation
           - --set-root-pass
           - "{{ mysql_root_password }}"
       when:
-        - root_password_check.rc != 0
-        - passwordless_root_check.rc | default(1) == 0
+        - mysql_password_login.rc != 0
+        - mysql_passwordless_login.rc | default(1) == 0
       no_log: true
 
-    - name: Verify root authentication after configuration
+    - name: Verify MySQL root authentication
       ansible.builtin.command:
         argv:
           - mysql
@@ -102,7 +84,7 @@
           - --batch
           - --skip-column-names
           - -e
-          - SELECT 1
+          - "SELECT 1;"
       environment:
         MYSQL_PWD: "{{ mysql_root_password }}"
       register: final_root_check
@@ -117,9 +99,9 @@
           - final_root_check.stdout | trim == '1'
         fail_msg: >-
           MySQL root authentication failed.
-          The existing root password may differ from
-          mysql_root_password. Verify the current
-          credentials before continuing.
+          The existing MySQL root password may be
+          different from the password in this YAML.
+          Verify the actual root credentials.
         success_msg: "MySQL root authentication successful"
 
     - name: Verify MySQL version
@@ -134,7 +116,7 @@
       ansible.builtin.debug:
         msg: "{{ mysql_version.stdout }}"
 
-    - name: Verify MySQL service
+    - name: Verify MySQL service status
       ansible.builtin.command:
         argv:
           - systemctl
@@ -146,3 +128,9 @@
     - name: Display MySQL service status
       ansible.builtin.debug:
         msg: "MySQL service: {{ mysql_service.stdout }}"
+
+    - name: Display MySQL configuration completion
+      ansible.builtin.debug:
+        msg: >-
+          MySQL installation and authentication
+          verification completed successfully.
