@@ -12,6 +12,7 @@
     vpc_id: vpc-0e7b5f1d5107e4368
     subnet_id: subnet-03830e2ebcab777e8
     aws_cli: /usr/local/bin/aws
+    domain_name: sodhichebutha.online
 
   environment:
     PATH: "/usr/local/bin:/usr/bin:/bin"
@@ -128,7 +129,7 @@
       ansible.builtin.assert:
         that:
           - (instances | map(attribute='name') | list | unique | list | length) == (instances | length)
-        fail_msg: "Duplicate instance names found in group_vars/all.yaml"
+        fail_msg: "Duplicate instance names found"
 
     - name: Check existing RoboShop EC2 instances
       amazon.aws.ec2_instance_info:
@@ -151,7 +152,7 @@
           - item.instances | length <= 1
         fail_msg: >-
           Multiple existing EC2 instances found for
-          {{ item.item.name }}. Resolve duplicates before deployment.
+          {{ item.item.name }}
       loop: "{{ existing_instances.results }}"
       loop_control:
         label: "{{ item.item.name }}"
@@ -208,6 +209,71 @@
         - not (item.skipped | default(false))
         - item.instances is defined
 
+    # NEW: Discover current EC2 IPs
+
+    - name: Refresh RoboShop instance information
+      amazon.aws.ec2_instance_info:
+        region: "{{ aws_region }}"
+        filters:
+          "tag:Name": "{{ item.name }}"
+          instance-state-name:
+            - running
+      loop: "{{ instances }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: running_instances
+      retries: 12
+      delay: 10
+      until: running_instances.instances | length == 1
+
+    - name: Validate running instances
+      ansible.builtin.assert:
+        that:
+          - item.instances | length == 1
+          - item.instances[0].private_ip_address is defined
+        fail_msg: "Instance {{ item.item.name }} is not ready"
+      loop: "{{ running_instances.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    # NEW: Register private IPs dynamically
+
+    - name: Register EC2 private IPs in Ansible
+      ansible.builtin.add_host:
+        name: >-
+          {{ domain_name if item.item.name == 'frontend'
+             else item.item.name ~ '.' ~ domain_name }}
+        ansible_host: "{{ item.instances[0].private_ip_address }}"
+        ansible_user: ec2-user
+      loop: "{{ running_instances.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    # NEW: Wait until frontend SSH is available
+
+    - name: Wait for frontend SSH port 22
+      ansible.builtin.wait_for:
+        host: "{{ item.instances[0].private_ip_address }}"
+        port: 22
+        delay: 5
+        connect_timeout: 5
+        timeout: 180
+        state: started
+      loop: "{{ running_instances.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: item.item.name == 'frontend'
+
+    - name: Display frontend connection details
+      ansible.builtin.debug:
+        msg: >-
+          Frontend {{ domain_name }} uses private IP
+          {{ item.instances[0].private_ip_address }}
+      loop: "{{ running_instances.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: item.item.name == 'frontend'
+
     - name: Display completion message
       ansible.builtin.debug:
-        msg: "RoboShop EC2 provisioning completed"
+        msg: "RoboShop EC2 provisioning and inventory registration completed"
