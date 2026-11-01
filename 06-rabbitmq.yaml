@@ -1,0 +1,84 @@
+---
+- name: Install and configure RabbitMQ 4.x
+  hosts: rabbitmq
+  become: true
+
+  vars:
+    rabbitmq_user: roboshop
+    rabbitmq_password: "roboshop123"
+
+  tasks:
+    - name: Copy RabbitMQ repository
+      ansible.builtin.copy:
+        src: repos/rabbitmq.repo
+        dest: /etc/yum.repos.d/rabbitmq.repo
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install Erlang and RabbitMQ
+      ansible.builtin.dnf:
+        name:
+          - erlang
+          - rabbitmq-server
+        state: present
+        update_cache: true
+
+    - name: Start and enable RabbitMQ
+      ansible.builtin.systemd_service:
+        name: rabbitmq-server
+        state: started
+        enabled: true
+
+    - name: Check existing RabbitMQ users
+      ansible.builtin.command:
+        cmd: rabbitmqctl list_users --silent
+      register: rabbitmq_users
+      changed_when: false
+
+    - name: Create RoboShop user
+      ansible.builtin.command:
+        argv:
+          - rabbitmqctl
+          - add_user
+          - "{{ rabbitmq_user }}"
+          - "{{ rabbitmq_password }}"
+      when: rabbitmq_user not in
+        (rabbitmq_users.stdout_lines
+        | map('split', '\t')
+        | map('first')
+        | list)
+      no_log: true
+
+    - name: Set RoboShop user permissions
+      ansible.builtin.command:
+        argv:
+          - rabbitmqctl
+          - set_permissions
+          - -p
+          - /
+          - "{{ rabbitmq_user }}"
+          - .*
+          - .*
+          - .*
+      changed_when: false
+
+    - name: Verify RabbitMQ version
+      ansible.builtin.command:
+        cmd: rabbitmqctl version
+      register: rabbitmq_version
+      changed_when: false
+
+    - name: Display RabbitMQ version
+      ansible.builtin.debug:
+        msg: "{{ rabbitmq_version.stdout }}"
+
+    - name: Verify RabbitMQ AMQP port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 5672
+        timeout: 30
+
+    - name: Display completion
+      ansible.builtin.debug:
+        msg: "RabbitMQ configured successfully"

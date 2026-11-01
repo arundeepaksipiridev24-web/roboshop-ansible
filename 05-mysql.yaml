@@ -3,34 +3,32 @@
   hosts: mysql
   become: true
 
+  vars:
+    mysql_root_password: "RoboShop@1"
+
   tasks:
-    - name: Check existing MySQL Community packages
+    - name: Check installed MySQL Community packages
       ansible.builtin.shell: |
         rpm -qa | grep '^mysql-community-' || true
-      register: existing_mysql
+      register: community_packages
       changed_when: false
-
-    - name: Display existing packages
-      ansible.builtin.debug:
-        var: existing_mysql.stdout_lines
 
     - name: Stop existing MySQL service
       ansible.builtin.systemd_service:
         name: mysqld
         state: stopped
-      when: existing_mysql.stdout | length > 0
+      when: community_packages.stdout_lines | length > 0
 
     - name: Remove conflicting MySQL Community packages
       ansible.builtin.dnf:
-        name: "{{ existing_mysql.stdout_lines }}"
+        name: "{{ community_packages.stdout_lines }}"
         state: absent
-      when: existing_mysql.stdout_lines | length > 0
+      when: community_packages.stdout_lines | length > 0
 
     - name: Enable MySQL 8.4 module
       ansible.builtin.command:
         cmd: dnf module enable mysql:8.4 -y
-      register: mysql_module
-      changed_when: "'Enabling module streams' in mysql_module.stdout"
+      changed_when: false
 
     - name: Install MySQL 8.4 server
       ansible.builtin.dnf:
@@ -43,6 +41,30 @@
         state: started
         enabled: true
 
+    - name: Check whether MySQL root password is configured
+      ansible.builtin.command:
+        argv:
+          - mysql
+          - -u
+          - root
+          - --batch
+          - --skip-column-names
+          - -e
+          - SELECT 1
+      register: mysql_root_check
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Set MySQL root password
+      ansible.builtin.command:
+        argv:
+          - mysql_secure_installation
+          - --set-root-pass
+          - "{{ mysql_root_password }}"
+      when: mysql_root_check.rc == 0
+      no_log: true
+
     - name: Verify MySQL version
       ansible.builtin.command:
         cmd: mysql --version
@@ -52,3 +74,13 @@
     - name: Display MySQL version
       ansible.builtin.debug:
         msg: "{{ mysql_version.stdout }}"
+
+    - name: Verify MySQL service
+      ansible.builtin.command:
+        cmd: systemctl is-active mysqld
+      register: mysql_service
+      changed_when: false
+
+    - name: Display MySQL service status
+      ansible.builtin.debug:
+        msg: "MySQL service: {{ mysql_service.stdout }}"
