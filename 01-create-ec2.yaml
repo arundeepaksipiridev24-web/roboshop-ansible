@@ -3,28 +3,91 @@
   hosts: localhost
   connection: local
   gather_facts: false
+
   vars_files:
     - group_vars/all.yaml
+
   vars:
     vpc_id: vpc-0e7b5f1d5107e4368
     subnet_id: subnet-03830e2ebcab777e8
-  tasks:
-    - name: Look up existing security groups in RoboShop VPC
-      amazon.aws.ec2_security_group_info:
-        region: "{{ aws_region }}"
-        filters:
-          vpc-id: "{{ vpc_id }}"
-      register: sg_info
 
-    - name: Validate all required security groups exist
+  tasks:
+    - name: Look up existing security groups
+      ansible.builtin.command:
+        argv:
+          - aws
+          - ec2
+          - describe-security-groups
+          - --filters
+          - "Name=vpc-id,Values={{ vpc_id }}"
+          - --region
+          - "{{ aws_region }}"
+          - --output
+          - json
+      register: sg_lookup
+      changed_when: false
+
+    - name: Store security group information
+      ansible.builtin.set_fact:
+        sg_info: "{{ (sg_lookup.stdout | from_json).SecurityGroups }}"
+
+    - name: Validate required security groups
       ansible.builtin.assert:
         that:
-          - item.security_group in (sg_info.security_groups | map(attribute='group_name') | list)
-          - common_sg in (sg_info.security_groups | map(attribute='group_name') | list)
-        fail_msg: "Missing security group {{ item.security_group }} or {{ common_sg }} in VPC {{ vpc_id }}"
+          - item.security_group in (sg_info | map(attribute='GroupName') | list)
+          - common_sg in (sg_info | map(attribute='GroupName') | list)
+        fail_msg: >-
+          Missing security group {{ item.security_group }}
+          or {{ common_sg }} in VPC {{ vpc_id }}
       loop: "{{ instances }}"
       loop_control:
         label: "{{ item.name }}"
+
+    - name: Validate subnet belongs to VPC
+      ansible.builtin.command:
+        argv:
+          - aws
+          - ec2
+          - describe-subnets
+          - --subnet-ids
+          - "{{ subnet_id }}"
+          - --region
+          - "{{ aws_region }}"
+          - --query
+          - "Subnets[0].VpcId"
+          - --output
+          - text
+      register: subnet_vpc
+      changed_when: false
+
+    - name: Confirm subnet VPC
+      ansible.builtin.assert:
+        that:
+          - subnet_vpc.stdout == vpc_id
+        fail_msg: "Subnet does not belong to {{ vpc_id }}"
+
+    - name: Verify AMI exists
+      ansible.builtin.command:
+        argv:
+          - aws
+          - ec2
+          - describe-images
+          - --image-ids
+          - "{{ ami_id }}"
+          - --region
+          - "{{ aws_region }}"
+          - --query
+          - "Images[0].State"
+          - --output
+          - text
+      register: ami_state
+      changed_when: false
+
+    - name: Validate AMI
+      ansible.builtin.assert:
+        that:
+          - ami_state.stdout == 'available'
+        fail_msg: "AMI {{ ami_id }} is not available"
 
     - name: Create or retain RoboShop EC2 instances
       amazon.aws.ec2_instance:
@@ -41,6 +104,7 @@
         exact_count: 1
         filters:
           "tag:Name": "{{ item.name }}"
+          "tag:Project": roboshop
           instance-state-name:
             - pending
             - running
@@ -57,7 +121,9 @@
 
     - name: Display EC2 results
       ansible.builtin.debug:
-        msg: "{{ item.item.name }}: {{ item.instances | map(attribute='instance_id') | list }}"
+        msg: >-
+          {{ item.item.name }}:
+          {{ item.instances | map(attribute='instance_id') | list }}
       loop: "{{ created_instances.results }}"
       loop_control:
         label: "{{ item.item.name }}"
