@@ -1,0 +1,63 @@
+---
+- name: Create RoboShop EC2 instances
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - group_vars/all.yaml
+  vars:
+    vpc_id: vpc-0e7b5f1d5107e4368
+    subnet_id: subnet-03830e2ebcab777e8
+  tasks:
+    - name: Look up existing security groups in RoboShop VPC
+      amazon.aws.ec2_security_group_info:
+        region: "{{ aws_region }}"
+        filters:
+          vpc-id: "{{ vpc_id }}"
+      register: sg_info
+
+    - name: Validate all required security groups exist
+      ansible.builtin.assert:
+        that:
+          - item.security_group in (sg_info.security_groups | map(attribute='group_name') | list)
+          - common_sg in (sg_info.security_groups | map(attribute='group_name') | list)
+        fail_msg: "Missing security group {{ item.security_group }} or {{ common_sg }} in VPC {{ vpc_id }}"
+      loop: "{{ instances }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Create or retain RoboShop EC2 instances
+      amazon.aws.ec2_instance:
+        region: "{{ aws_region }}"
+        name: "{{ item.name }}"
+        image_id: "{{ ami_id }}"
+        instance_type: "{{ instance_type }}"
+        vpc_subnet_id: "{{ subnet_id }}"
+        security_groups:
+          - "{{ item.security_group }}"
+          - "{{ common_sg }}"
+        network:
+          assign_public_ip: false
+        exact_count: 1
+        filters:
+          "tag:Name": "{{ item.name }}"
+          instance-state-name:
+            - pending
+            - running
+            - stopping
+            - stopped
+        tags:
+          Project: roboshop
+          ManagedBy: ansible
+        wait: true
+      loop: "{{ instances }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: created_instances
+
+    - name: Display EC2 results
+      ansible.builtin.debug:
+        msg: "{{ item.item.name }}: {{ item.instances | map(attribute='instance_id') | list }}"
+      loop: "{{ created_instances.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
