@@ -1,0 +1,55 @@
+---
+- name: Install and configure Redis
+  hosts: redis
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Install Redis
+      ansible.builtin.dnf:
+        name: redis
+        state: present
+
+    - name: Allow Redis remote connections
+      ansible.builtin.lineinfile:
+        path: /etc/redis/redis.conf
+        regexp: '^\s*bind\s+'
+        line: "bind 0.0.0.0"
+      notify: Restart Redis
+
+    - name: Disable Redis protected mode for lab
+      ansible.builtin.lineinfile:
+        path: /etc/redis/redis.conf
+        regexp: '^\s*protected-mode\s+'
+        line: "protected-mode no"
+      notify: Restart Redis
+
+    - name: Enable and start Redis
+      ansible.builtin.systemd_service:
+        name: redis
+        state: started
+        enabled: true
+
+    - name: Apply Redis configuration
+      ansible.builtin.meta: flush_handlers
+
+    - name: Verify Redis port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 6379
+        timeout: 30
+
+    - name: Check Redis service
+      ansible.builtin.command: systemctl is-active redis
+      register: redis_status
+      changed_when: false
+
+    - name: Display Redis status
+      ansible.builtin.debug:
+        msg: "Redis status: {{ redis_status.stdout }}"
+
+  handlers:
+    - name: Restart Redis
+      ansible.builtin.systemd_service:
+        name: redis
+        state: restarted
