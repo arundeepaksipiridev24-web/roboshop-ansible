@@ -1,0 +1,40 @@
+---
+# AWS Configuration
+aws_region: us-east-1
+ami_id: ami-0055977a6e828a4f4
+instance_type: t3.micro
+
+# Route 53 Configuration
+domain_name: sodhichebutha.online
+
+# Common Security Group for all instances
+common_sg: roboshop-common
+
+# Ansible SSH User
+ansible_user: ec2-user
+
+# EC2 Instances and existing Security Groups
+instances:
+  - name: mongodb
+    security_group: mongodb-roboshop
+
+  - name: redis
+    security_group: redis-roboshop
+
+  - name: mysql
+    security_group: mysql-roboshop
+
+  - name: rabbitmq
+    security_group: rabbitmq-roboshop
+
+  - name: catalogue
+    security_group: catalogue-roboshop
+
+  - name: user
+    security_group: user-roboshop
+
+  - name: cart
+    security_group: cart-roboshop
+
+  - name: shipping
+    security_group: shipping-roboshop
