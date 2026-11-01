@@ -1,0 +1,76 @@
+---
+- name: Deploy RoboShop Frontend with Nginx 1.26
+  hosts: frontend
+  become: true
+  tasks:
+    - name: Disable default Nginx module
+      ansible.builtin.command: dnf module disable nginx -y
+      changed_when: false
+    - name: Enable Nginx 1.26 module
+      ansible.builtin.command: dnf module enable nginx:1.26 -y
+      changed_when: false
+    - name: Install Nginx and unzip
+      ansible.builtin.dnf:
+        name: [nginx, unzip]
+        state: present
+    - name: Create web directory
+      ansible.builtin.file:
+        path: /usr/share/nginx/html
+        state: directory
+        mode: '0755'
+    - name: Check website entry point
+      ansible.builtin.stat:
+        path: /usr/share/nginx/html/index.html
+      register: frontend_index
+    - name: Download frontend archive
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/daws-92s/roboshop-documentation/refs/heads/main/artifacts/frontend-v4.zip
+        dest: /tmp/frontend-v4.zip
+        mode: '0644'
+      register: frontend_archive
+    - name: Remove old frontend content before deployment
+      ansible.builtin.shell: 'find /usr/share/nginx/html -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +'
+      when: frontend_archive.changed or not frontend_index.stat.exists
+    - name: Deploy website
+      ansible.builtin.unarchive:
+        src: /tmp/frontend-v4.zip
+        dest: /usr/share/nginx/html
+        remote_src: true
+      when: frontend_archive.changed or not frontend_index.stat.exists
+      notify: Reload Nginx
+    - name: Create Nginx default.d directory
+      ansible.builtin.file:
+        path: /etc/nginx/default.d
+        state: directory
+        mode: '0755'
+    - name: Install reverse proxy configuration
+      ansible.builtin.template:
+        src: templates/roboshop.conf.j2
+        dest: /etc/nginx/default.d/roboshop.conf
+        mode: '0644'
+      notify: Reload Nginx
+    - name: Permit Nginx outbound connections under SELinux
+      ansible.posix.seboolean:
+        name: httpd_can_network_connect
+        state: true
+        persistent: true
+      when: ansible_selinux.status | default('disabled') == 'enabled'
+    - name: Validate Nginx configuration
+      ansible.builtin.command: nginx -t
+      changed_when: false
+    - name: Start and enable Nginx
+      ansible.builtin.systemd_service:
+        name: nginx
+        enabled: true
+        state: started
+    - name: Apply reload
+      ansible.builtin.meta: flush_handlers
+    - name: Check frontend
+      ansible.builtin.uri:
+        url: http://127.0.0.1/
+        status_code: 200
+  handlers:
+    - name: Reload Nginx
+      ansible.builtin.systemd_service:
+        name: nginx
+        state: reloaded

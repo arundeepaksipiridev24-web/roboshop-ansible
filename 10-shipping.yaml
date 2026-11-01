@@ -1,0 +1,159 @@
+---
+- name: Deploy Shipping with Java 25 and Maven 3.9
+  hosts: shipping
+  become: true
+  vars:
+    mysql_host: mysql.sodhichebutha.online
+    mysql_root_password: 'RoboShop@1'
+    shipping_url: https://raw.githubusercontent.com/daws-92s/roboshop-documentation/refs/heads/main/artifacts/shipping-v4.zip
+  tasks:
+    - name: Enable Maven 3.9 module
+      ansible.builtin.command: dnf module enable maven:3.9 -y
+      changed_when: false
+    - name: Install Maven, Java 25, MySQL client and unzip
+      ansible.builtin.dnf:
+        name: [maven, java-25-openjdk-devel, mysql, unzip]
+        state: present
+    - name: Find Java 25 executable
+      ansible.builtin.shell: "find /usr/lib/jvm -path '*/bin/java' -type f -o -path '*/bin/java' -type l | grep 'java-25' | head -1"
+      register: java25_bin
+      changed_when: false
+      failed_when: java25_bin.stdout | trim == ''
+    - name: Derive Java 25 home
+      ansible.builtin.set_fact:
+        java25_home: "{{ java25_bin.stdout | trim | dirname | dirname }}"
+    - name: Configure default Java
+      community.general.alternatives:
+        name: java
+        path: "{{ java25_home }}/bin/java"
+    - name: Persist JAVA_HOME
+      ansible.builtin.copy:
+        dest: /etc/profile.d/java.sh
+        content: "export JAVA_HOME={{ java25_home }}\n"
+        mode: '0644'
+    - name: Create roboshop user
+      ansible.builtin.user:
+        name: roboshop
+        system: true
+        home: /app
+        create_home: false
+        shell: /sbin/nologin
+    - name: Create app directory
+      ansible.builtin.file:
+        path: /app
+        state: directory
+        owner: roboshop
+        group: roboshop
+        mode: '0755'
+    - name: Check shipping source
+      ansible.builtin.stat:
+        path: /app/pom.xml
+      register: source_file
+    - name: Download Shipping artifact
+      ansible.builtin.get_url:
+        url: "{{ shipping_url }}"
+        dest: /tmp/shipping-v4.zip
+        mode: '0644'
+      register: artifact
+    - name: Extract Shipping artifact
+      ansible.builtin.unarchive:
+        src: /tmp/shipping-v4.zip
+        dest: /app
+        remote_src: true
+        owner: roboshop
+        group: roboshop
+      when: artifact.changed or not source_file.stat.exists
+      register: extracted
+    - name: Check deployed shipping jar
+      ansible.builtin.stat:
+        path: /app/shipping.jar
+      register: jar_file
+    - name: Build Shipping jar
+      ansible.builtin.command: mvn clean package
+      args:
+        chdir: /app
+      environment:
+        JAVA_HOME: "{{ java25_home }}"
+        PATH: "{{ java25_home }}/bin:{{ ansible_env.PATH }}"
+      become_user: roboshop
+      when: extracted.changed or not (jar_file.stat.exists | default(false))
+      register: built
+    - name: Check built jar
+      ansible.builtin.stat:
+        path: /app/target/shipping.jar
+      register: built_jar
+      when: built.changed
+    - name: Install shipping jar
+      ansible.builtin.copy:
+        src: /app/target/shipping.jar
+        dest: /app/shipping.jar
+        remote_src: true
+        owner: roboshop
+        group: roboshop
+        mode: '0644'
+      when: built.changed
+      notify: Restart Shipping
+    - name: Check cities database exists
+      ansible.builtin.command:
+        argv: [mysql, "-h{{ mysql_host }}", -uroot, --batch, --skip-column-names, -e, "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME='cities'",]
+      environment:
+        MYSQL_PWD: "{{ mysql_root_password }}"
+      register: cities_db
+      changed_when: false
+      no_log: true
+    - name: Load cities master data only if database is missing
+      ansible.builtin.shell: 'mysql -h "{{ mysql_host }}" -uroot < /app/db/master-data.sql'
+      environment:
+        MYSQL_PWD: "{{ mysql_root_password }}"
+      when: cities_db.stdout | trim != 'cities'
+      no_log: true
+    - name: Check shipping database user
+      ansible.builtin.command:
+        argv:
+          - mysql
+          - "-h{{ mysql_host }}"
+          - -uroot
+          - --batch
+          - --skip-column-names
+          - -e
+          - "SELECT User FROM mysql.user WHERE User='shipping'"
+      environment:
+        MYSQL_PWD: "{{ mysql_root_password }}"
+      register: shipping_user
+      changed_when: false
+      no_log: true
+    - name: Ensure shipping database application user exists
+      ansible.builtin.shell: 'mysql -h "{{ mysql_host }}" -uroot < /app/db/app-user.sql'
+      environment:
+        MYSQL_PWD: "{{ mysql_root_password }}"
+      no_log: true
+      when: shipping_user.stdout | trim != 'shipping'
+    - name: Deploy Shipping systemd unit
+      ansible.builtin.template:
+        src: templates/shipping.service.j2
+        dest: /etc/systemd/system/shipping.service
+        mode: '0644'
+      notify: Restart Shipping
+    - name: Start Shipping
+      ansible.builtin.systemd_service:
+        name: shipping
+        enabled: true
+        state: started
+        daemon_reload: true
+    - name: Apply pending restarts
+      ansible.builtin.meta: flush_handlers
+    - name: Verify Shipping health
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8080/actuator/health
+        status_code: 200
+        return_content: true
+      register: shipping_health
+      retries: 15
+      delay: 4
+      until: shipping_health.status == 200
+  handlers:
+    - name: Restart Shipping
+      ansible.builtin.systemd_service:
+        name: shipping
+        daemon_reload: true
+        state: restarted

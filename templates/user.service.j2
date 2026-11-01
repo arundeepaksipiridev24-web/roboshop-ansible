@@ -1,0 +1,17 @@
+[Unit]
+Description=RoboShop User Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=roboshop
+WorkingDirectory=/app
+Environment="REDIS_URL=redis://redis.sodhichebutha.online:6379"
+Environment="MONGO_URL=mongodb://mongodb.sodhichebutha.online:27017/users"
+ExecStart=/bin/node /app/server.js
+SyslogIdentifier=user
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

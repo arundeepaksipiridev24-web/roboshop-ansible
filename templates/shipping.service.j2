@@ -1,0 +1,19 @@
+[Unit]
+Description=RoboShop Shipping Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=roboshop
+WorkingDirectory=/app
+Environment="CART_ENDPOINT=cart.sodhichebutha.online:8080"
+Environment="DB_HOST=mysql.sodhichebutha.online"
+Environment="DB_USER=shipping"
+Environment="DB_PASSWORD=RoboShop@1"
+ExecStart=/bin/java -jar /app/shipping.jar
+SyslogIdentifier=shipping
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

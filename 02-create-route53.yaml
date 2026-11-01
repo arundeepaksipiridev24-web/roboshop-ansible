@@ -43,45 +43,72 @@
         label: "{{ item.name }}"
       register: ec2_lookup
 
-    - name: Validate EC2 instances and private IPs
+    - name: Validate EC2 instances and IPs
       ansible.builtin.assert:
         that:
           - item.instances | length == 1
           - (item.instances[0].private_ip_address | default('')) | length > 0
-        fail_msg: >-
-          Expected exactly one running RoboShop EC2 instance
-          with a private IP for {{ item.item.name }}
+          - >-
+            item.item.name != 'frontend' or
+            (item.instances[0].public_ip_address | default('') | length > 0)
+        fail_msg: "Missing or duplicate EC2 instance/IP for {{ item.item.name }}"
       loop: "{{ ec2_lookup.results }}"
       loop_control:
         label: "{{ item.item.name }}"
 
-    - name: Display DNS records to update
+    - name: Display DNS records
       ansible.builtin.debug:
         msg: >-
           {{ item.item.name }}.{{ domain_name }}
-          -> {{ item.instances[0].private_ip_address }}
+          ->
+          {{ item.instances[0].public_ip_address
+             if item.item.name == 'frontend'
+             else item.instances[0].private_ip_address }}
       loop: "{{ ec2_lookup.results }}"
       loop_control:
         label: "{{ item.item.name }}"
 
-    - name: Create or update Route 53 A records
+    - name: Create or update service DNS records
       amazon.aws.route53:
         state: present
         overwrite: true
         hosted_zone_id: "{{ route53_zone_id }}"
         record: "{{ item.item.name }}.{{ domain_name }}"
         type: A
-        ttl: 60
-        value: "{{ item.instances[0].private_ip_address }}"
+        ttl: 1
+        value: >-
+          {{ item.instances[0].public_ip_address
+             if item.item.name == 'frontend'
+             else item.instances[0].private_ip_address }}
         wait: true
       loop: "{{ ec2_lookup.results }}"
       loop_control:
         label: "{{ item.item.name }}"
 
+    - name: Find frontend EC2 result
+      ansible.builtin.set_fact:
+        frontend_ec2: "{{ item.instances[0] }}"
+      loop: "{{ ec2_lookup.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: item.item.name == 'frontend'
+
+    - name: Create root domain A record
+      amazon.aws.route53:
+        state: present
+        overwrite: true
+        hosted_zone_id: "{{ route53_zone_id }}"
+        record: "{{ domain_name }}"
+        type: A
+        ttl: 1
+        value: "{{ frontend_ec2.public_ip_address }}"
+        wait: true
+      when: frontend_ec2 is defined
+
     - name: Display DNS update results
       ansible.builtin.debug:
         msg: >-
-          DNS update submitted for
+          DNS updated:
           {{ item.item.name }}.{{ domain_name }}
       loop: "{{ ec2_lookup.results }}"
       loop_control:
