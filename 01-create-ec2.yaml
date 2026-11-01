@@ -3,6 +3,7 @@
   hosts: localhost
   connection: local
   gather_facts: false
+  become: false
 
   vars_files:
     - group_vars/all.yaml
@@ -10,12 +11,46 @@
   vars:
     vpc_id: vpc-0e7b5f1d5107e4368
     subnet_id: subnet-03830e2ebcab777e8
+    aws_cli: /usr/local/bin/aws
+
+  environment:
+    PATH: "/usr/local/bin:/usr/bin:/bin"
 
   tasks:
+    - name: Verify AWS CLI installation
+      ansible.builtin.command:
+        argv:
+          - "{{ aws_cli }}"
+          - --version
+      register: aws_cli_version
+      changed_when: false
+
+    - name: Display AWS CLI version
+      ansible.builtin.debug:
+        var: aws_cli_version.stdout
+
+    - name: Verify AWS authentication
+      ansible.builtin.command:
+        argv:
+          - "{{ aws_cli }}"
+          - sts
+          - get-caller-identity
+          - --region
+          - "{{ aws_region }}"
+          - --output
+          - json
+      register: aws_identity
+      changed_when: false
+      no_log: true
+
+    - name: Confirm AWS authentication
+      ansible.builtin.debug:
+        msg: "AWS CLI authentication successful"
+
     - name: Look up existing security groups
       ansible.builtin.command:
         argv:
-          - aws
+          - "{{ aws_cli }}"
           - ec2
           - describe-security-groups
           - --filters
@@ -46,7 +81,7 @@
     - name: Validate subnet belongs to VPC
       ansible.builtin.command:
         argv:
-          - aws
+          - "{{ aws_cli }}"
           - ec2
           - describe-subnets
           - --subnet-ids
@@ -69,7 +104,7 @@
     - name: Verify AMI exists
       ansible.builtin.command:
         argv:
-          - aws
+          - "{{ aws_cli }}"
           - ec2
           - describe-images
           - --image-ids
@@ -89,22 +124,53 @@
           - ami_state.stdout == 'available'
         fail_msg: "AMI {{ ami_id }} is not available"
 
-    - name: Create or retain RoboShop EC2 instances
+    - name: Validate instance names are unique
+      ansible.builtin.assert:
+        that:
+          - (instances | map(attribute='name') | list | unique | list | length) == (instances | length)
+        fail_msg: "Duplicate instance names found in group_vars/all.yaml"
+
+    - name: Check existing RoboShop EC2 instances
+      amazon.aws.ec2_instance_info:
+        region: "{{ aws_region }}"
+        filters:
+          "tag:Name": "{{ item.name }}"
+          instance-state-name:
+            - pending
+            - running
+            - stopping
+            - stopped
+      loop: "{{ instances }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: existing_instances
+
+    - name: Prevent duplicate EC2 instance creation
+      ansible.builtin.assert:
+        that:
+          - item.instances | length <= 1
+        fail_msg: >-
+          Multiple existing EC2 instances found for
+          {{ item.item.name }}. Resolve duplicates before deployment.
+      loop: "{{ existing_instances.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: Create missing RoboShop EC2 instances
       amazon.aws.ec2_instance:
         region: "{{ aws_region }}"
-        name: "{{ item.name }}"
+        name: "{{ item.item.name }}"
         image_id: "{{ ami_id }}"
         instance_type: "{{ instance_type }}"
         vpc_subnet_id: "{{ subnet_id }}"
         security_groups:
-          - "{{ item.security_group }}"
+          - "{{ item.item.security_group }}"
           - "{{ common_sg }}"
         network:
-          assign_public_ip: false
+          assign_public_ip: "{{ item.item.name == 'frontend' }}"
         exact_count: 1
         filters:
-          "tag:Name": "{{ item.name }}"
-          "tag:Project": roboshop
+          "tag:Name": "{{ item.item.name }}"
           instance-state-name:
             - pending
             - running
@@ -114,16 +180,34 @@
           Project: roboshop
           ManagedBy: ansible
         wait: true
-      loop: "{{ instances }}"
+      loop: "{{ existing_instances.results }}"
       loop_control:
-        label: "{{ item.name }}"
+        label: "{{ item.item.name }}"
+      when: item.instances | length == 0
       register: created_instances
 
-    - name: Display EC2 results
+    - name: Display existing EC2 instances
       ansible.builtin.debug:
         msg: >-
-          {{ item.item.name }}:
+          {{ item.item.name }} already exists:
+          {{ item.instances | map(attribute='instance_id') | list }}
+      loop: "{{ existing_instances.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: item.instances | length > 0
+
+    - name: Display newly created EC2 instances
+      ansible.builtin.debug:
+        msg: >-
+          {{ item.item.item.name }} created:
           {{ item.instances | map(attribute='instance_id') | list }}
       loop: "{{ created_instances.results }}"
       loop_control:
-        label: "{{ item.item.name }}"
+        label: "{{ item.item.item.name }}"
+      when:
+        - not (item.skipped | default(false))
+        - item.instances is defined
+
+    - name: Display completion message
+      ansible.builtin.debug:
+        msg: "RoboShop EC2 provisioning completed"
