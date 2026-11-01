@@ -12,3 +12,5 @@
 - import_playbook: 09-cart.yaml
 - import_playbook: 10-shipping.yaml
 - import_playbook: 11-frontend.yaml
+- import_playbook: 12-payment.yaml
+- import_playbook: 13-dispatch.yaml
