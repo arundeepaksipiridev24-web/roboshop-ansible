@@ -22,10 +22,20 @@
     - name: Derive Java 25 home
       ansible.builtin.set_fact:
         java25_home: "{{ java25_bin.stdout | trim | dirname | dirname }}"
-    - name: Configure default Java
-      community.general.alternatives:
-        name: java
-        path: "{{ java25_home }}/bin/java"
+    - name: Check current default Java
+      ansible.builtin.command:
+        cmd: readlink -f /usr/bin/java
+      register: current_java
+      changed_when: false
+
+    - name: Configure default Java 25
+      ansible.builtin.command:
+        argv:
+          - alternatives
+          - --set
+          - java
+          - "{{ java25_bin.stdout | trim }}"
+      when: (current_java.stdout | trim) != (java25_bin.stdout | trim)
     - name: Persist JAVA_HOME
       ansible.builtin.copy:
         dest: /etc/profile.d/java.sh
