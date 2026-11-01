@@ -1,0 +1,40 @@
+---
+- name: Check AWS Account and EC2 Details
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - group_vars/all.yaml
+
+  tasks:
+    - name: Check AWS Account Identity
+      ansible.builtin.command:
+        cmd: aws sts get-caller-identity
+      register: aws_identity
+      changed_when: false
+
+    - name: Print AWS Account Identity
+      ansible.builtin.debug:
+        msg: "{{ aws_identity.stdout }}"
+
+    - name: Get Running EC2 Instance Details
+      ansible.builtin.command:
+        argv:
+          - aws
+          - ec2
+          - describe-instances
+          - --filters
+          - Name=instance-state-name,Values=running
+          - --query
+          - "Reservations[].Instances[].[InstanceId,VpcId,SubnetId,PrivateIpAddress,Tags[?Key=='Name'].Value|[0]]"
+          - --output
+          - json
+          - --region
+          - "{{ aws_region }}"
+      register: ec2_details
+      changed_when: false
+
+    - name: Print Running EC2 Details
+      ansible.builtin.debug:
+        msg: "{{ ec2_details.stdout | from_json }}"
