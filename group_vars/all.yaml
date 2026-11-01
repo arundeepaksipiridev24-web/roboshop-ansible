@@ -39,4 +39,4 @@ instances:
     security_group: roboshop-shipping
 
   - name: frontend
-    security_group: frontend
+    security_group: roboshop-frontend
