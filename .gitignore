@@ -1,0 +1,7 @@
+
+.local/
+.vault-pass*
+*vault-password*
+group_vars/all/credentials.yaml
+*.swp
+*.swo

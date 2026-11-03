@@ -4,7 +4,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-User=roboshop
+User={{ app_user }}
 WorkingDirectory=/app
 Environment="REDIS_URL=redis://{{ redis_host }}:6379"
 Environment="MONGO_URL=mongodb://{{ mongodb_host }}:27017/users"

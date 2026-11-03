@@ -6,13 +6,13 @@ After=network-online.target
 
 [Service]
 Type=simple
-User=roboshop
-Group=roboshop
+User={{ app_user }}
+Group={{ app_group }}
 WorkingDirectory=/app
 
 Environment="CART_ENDPOINT={{ cart_host }}:8080"
 Environment="DB_HOST={{ mysql_host }}"
-Environment="DB_USER=shipping"
+Environment="DB_USER={{ shipping_db_user }}"
 Environment="DB_PASSWORD={{ shipping_db_password }}"
 Environment="JAVA_HOME={{ java25_home }}"
 

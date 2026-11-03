@@ -45,7 +45,7 @@
         mode: '0755'
     - name: Install reverse proxy configuration
       ansible.builtin.template:
-        src: roboshop.conf.j2
+        src: templates/roboshop.conf.j2
         dest: /etc/nginx/default.d/roboshop.conf
         mode: '0644'
       notify: Reload Nginx

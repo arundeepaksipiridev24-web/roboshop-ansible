@@ -31,7 +31,7 @@
         argv:
           - mysql
           - -u
-          - root
+          - "{{ mysql_admin_user }}"
           - --batch
           - --skip-column-names
           - -e
@@ -48,7 +48,7 @@
         argv:
           - mysql
           - -u
-          - root
+          - "{{ mysql_admin_user }}"
           - --batch
           - --skip-column-names
           - -e
@@ -77,7 +77,7 @@
         argv:
           - mysql
           - -u
-          - root
+          - "{{ mysql_admin_user }}"
           - --batch
           - --skip-column-names
           - -e
@@ -97,7 +97,7 @@
         fail_msg: >-
           MySQL root authentication failed.
           The existing MySQL root password may be
-          different from mysql_root_password in group_vars/all/credentials.yaml.
+          different from mysql_root_password in group_vars/all/vault.yaml.
           Verify the actual root credentials.
         success_msg: "MySQL root authentication successful"
 

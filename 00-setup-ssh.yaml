@@ -7,7 +7,7 @@
   tasks:
     - name: Create control node SSH directory
       ansible.builtin.file:
-        path: /home/ec2-user/.ssh
+        path: "{{ control_ssh_dir }}"
         state: directory
         mode: "0700"
 
@@ -22,17 +22,17 @@
           - -N
           - ""
           - -f
-          - /home/ec2-user/.ssh/id_rsa
-        creates: /home/ec2-user/.ssh/id_rsa
+          - "{{ control_ssh_key }}"
+        creates: "{{ control_ssh_key }}"
 
     - name: Check the control node public key
       ansible.builtin.stat:
-        path: /home/ec2-user/.ssh/id_rsa.pub
+        path: "{{ control_ssh_key }}.pub"
       register: control_public_key
 
     - name: Recover public key from an existing private key
       ansible.builtin.command:
-        argv: [ssh-keygen, -y, -P, "", -f, /home/ec2-user/.ssh/id_rsa]
+        argv: [ssh-keygen, -y, -P, "", -f, "{{ control_ssh_key }}"]
       register: recovered_public_key
       changed_when: false
       no_log: true
@@ -41,7 +41,7 @@
     - name: Save recovered public key
       ansible.builtin.copy:
         content: "{{ recovered_public_key.stdout }}\n"
-        dest: /home/ec2-user/.ssh/id_rsa.pub
+        dest: "{{ control_ssh_key }}.pub"
         mode: "0644"
       when: not control_public_key.stat.exists
 
@@ -58,23 +58,23 @@
 
     - name: Ensure ec2-user SSH directory exists
       ansible.builtin.file:
-        path: /home/ec2-user/.ssh
+        path: "{{ ssh_home }}/.ssh"
         state: directory
-        owner: ec2-user
-        group: ec2-user
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
         mode: "0700"
 
     - name: Install control node RSA public key
       ansible.posix.authorized_key:
-        user: ec2-user
+        user: "{{ ssh_user }}"
         state: present
         manage_dir: false
-        key: "{{ lookup('file', '/home/ec2-user/.ssh/id_rsa.pub') }}"
+        key: "{{ lookup('file', control_ssh_key ~ '.pub') }}"
 
     - name: Ensure passwordless sudo for ec2-user
       ansible.builtin.copy:
         dest: /etc/sudoers.d/90-roboshop-ansible
-        content: "ec2-user ALL=(ALL) NOPASSWD: ALL\n"
+        content: "{{ ssh_user }} ALL=(ALL) NOPASSWD: ALL\n"
         owner: root
         group: root
         mode: "0440"

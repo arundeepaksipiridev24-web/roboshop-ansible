@@ -1,0 +1,6 @@
+# Copy to group_vars/all/vault.yaml, replace placeholders, then encrypt.
+ansible_password: "REPLACE_WITH_SSH_PASSWORD"
+ansible_become_password: "REPLACE_WITH_SUDO_PASSWORD"
+rabbitmq_password: "REPLACE_WITH_RABBITMQ_PASSWORD"
+mysql_root_password: "REPLACE_WITH_MYSQL_ROOT_PASSWORD"
+shipping_db_password: "REPLACE_WITH_SHIPPING_DB_PASSWORD"

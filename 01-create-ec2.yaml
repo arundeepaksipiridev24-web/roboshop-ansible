@@ -5,14 +5,6 @@
   gather_facts: false
   become: false
 
-  vars_files:
-    - group_vars/all/main.yaml
-
-  vars:
-    vpc_id: vpc-0e7b5f1d5107e4368
-    subnet_id: subnet-03830e2ebcab777e8
-    aws_cli: /usr/local/bin/aws
-    domain_name: sodhichebutha.online
 
   environment:
     PATH: "/usr/local/bin:/usr/bin:/bin"
@@ -244,7 +236,7 @@
           {{ domain_name if item.item.name == 'frontend'
              else item.item.name ~ '.' ~ domain_name }}
         ansible_host: "{{ item.instances[0].private_ip_address }}"
-        ansible_user: ec2-user
+        ansible_user: "{{ ssh_user }}"
       loop: "{{ running_instances.results }}"
       loop_control:
         label: "{{ item.item.name }}"

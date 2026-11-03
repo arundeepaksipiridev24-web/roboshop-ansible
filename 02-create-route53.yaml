@@ -5,13 +5,6 @@
   gather_facts: false
   become: false
 
-  vars_files:
-    - group_vars/all/main.yaml
-
-  vars:
-    route53_zone_id: "Z047542739NDVFK4NND1"
-    aws_cli: /usr/local/bin/aws
-    route53_ttl: 1
 
   environment:
     PATH: "/usr/local/bin:/usr/bin:/bin"

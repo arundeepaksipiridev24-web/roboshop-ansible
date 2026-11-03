@@ -6,7 +6,7 @@
   tasks:
     - name: Copy RabbitMQ repository
       ansible.builtin.copy:
-        src: rabbitmq.repo
+        src: files/rabbitmq.repo
         dest: /etc/yum.repos.d/rabbitmq.repo
         owner: root
         group: root

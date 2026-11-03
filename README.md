@@ -1,22 +1,7 @@
 # RoboShop Ansible
 
-This project follows the flat layout in `../roboshop-ansible-v1` and the
-installation steps and service order in `../roboshop-documentation`.
-
-## Layout
-
-- `01-mongodb.yaml` through `11-frontend.yaml`: one playbook per service,
-  numbered in documentation order. Payment and Dispatch run before Frontend.
-- `*.service.j2`, `roboshop.conf.j2`, `mongo.repo`, `rabbitmq.repo`: assets
-  beside the playbooks, as in the reference project.
-- `group_vars/all/main.yaml`: shared infrastructure settings, service endpoints,
-  artifact URL and version. The `all/` directory also keeps the existing
-  `credentials.yaml`; this avoids splitting the all-group defaults between a file
-  and a directory. All passwords are defined only in
-  `group_vars/all/credentials.yaml`.
-- `roboshop.yaml`: existing EC2 and Route 53 provisioning entry point.
-- `services.yaml`: databases, backends, then frontend; uses existing hosts.
-- `main.yaml`: provisioning, SSH setup, then all services.
+See [CONFIGURATION.md](CONFIGURATION.md) for the configuration file structure.
+See [VAULT-PRACTICE.md](VAULT-PRACTICE.md) for creating encrypted passwords on EC2.
 
 ## Requirements and configuration
 
@@ -31,7 +16,7 @@ ansible-galaxy collection install -r requirements.yaml
 ```
 
 Review `inventory.ini`, SSH settings in `ansible.cfg`, shared settings in
-`group_vars/all/main.yaml`, and the existing VPC, subnet and hosted-zone
+`group_vars/all/infrastructure.yaml`, and the existing VPC, subnet and hosted-zone
 settings in the provisioning playbooks before provisioning. Inventory uses
 `sodhichebutha.online`; update its entries too if changing `domain_name`.
 The provisioning workflow also requires AWS CLI, boto3/botocore and AWS credentials
@@ -50,8 +35,8 @@ control node SSH key, installs it on all servers, configures passwordless sudo,
 and deploys all eleven services in documentation order.
 
 SSH, sudo, RabbitMQ, MySQL root and Shipping database passwords are set in
-`group_vars/all/credentials.yaml`. Change them there if the AMI login changes.
-No `-k`, `-K`, or Vault password flag is needed. The first SSH connection accepts
+`group_vars/all/vault.yaml`. Change them there if the AMI login changes.
+Complete VAULT-PRACTICE.md first. The configured EC2 vault password file supplies the decryption password automatically. No `-k` or `-K` is needed. The first SSH connection accepts
 new host keys automatically; changed host keys are still rejected. An existing
 control node private key must have no passphrase for this unattended workflow.
 Shipping's database user is configured from `shipping_db_password`; the
@@ -104,3 +89,7 @@ Shipping account setup uses the MySQL CLI with SQL on standard input and the
 central credentials. No community.mysql collection or Python MySQL driver is
 required. Passwords and raw database errors remain hidden; a failure reports
 only the client exit status and MySQL error numbers.
+
+## Encrypted credentials
+
+Follow [VAULT-PRACTICE.md](VAULT-PRACTICE.md) to create and encrypt passwords on EC2 and copy only the encrypted YAML into VS Code. Previous local plaintext credentials are preserved under ignored `.local/credentials.yaml`; they are no longer loaded automatically.

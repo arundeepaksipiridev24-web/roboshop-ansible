@@ -16,9 +16,15 @@
     - name: Show Go version
       ansible.builtin.debug:
         var: go_version.stdout
+    - name: Create application group
+      ansible.builtin.group:
+        name: "{{ app_group }}"
+        system: true
+
     - name: Create application user
       ansible.builtin.user:
-        name: roboshop
+        name: "{{ app_user }}"
+        group: "{{ app_group }}"
         system: true
         home: /app
         shell: /sbin/nologin
@@ -71,13 +77,13 @@
         dest: /etc/roboshop/dispatch.env
         content: "AMQP_PASS={{ rabbitmq_password }}\n"
         owner: root
-        group: roboshop
+        group: "{{ app_group }}"
         mode: '0640'
       no_log: true
       notify: Restart dispatch
     - name: Install Dispatch systemd unit
       ansible.builtin.template:
-        src: dispatch.service.j2
+        src: templates/dispatch.service.j2
         dest: /etc/systemd/system/dispatch.service
         mode: '0644'
       notify: Restart dispatch

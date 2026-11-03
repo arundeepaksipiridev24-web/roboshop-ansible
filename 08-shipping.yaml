@@ -8,6 +8,13 @@
     shipping_url: "{{ artifact_base_url }}/shipping-{{ app_version }}.zip"
 
   tasks:
+    - name: Validate database account identifier
+      ansible.builtin.assert:
+        that:
+          - shipping_db_user is match('^[A-Za-z0-9_]+$')
+          - mysql_admin_user is match('^[A-Za-z0-9_]+$')
+        fail_msg: Database usernames must use letters, numbers and underscores
+
     - name: Enable Maven 3.9 module
       ansible.builtin.command:
         argv:
@@ -68,9 +75,15 @@
         content: "export JAVA_HOME={{ java25_home }}\n"
         mode: "0644"
 
+    - name: Create application group
+      ansible.builtin.group:
+        name: "{{ app_group }}"
+        system: true
+
     - name: Create roboshop user
       ansible.builtin.user:
-        name: roboshop
+        name: "{{ app_user }}"
+        group: "{{ app_group }}"
         system: true
         home: /app
         create_home: false
@@ -80,8 +93,8 @@
       ansible.builtin.file:
         path: /app
         state: directory
-        owner: roboshop
-        group: roboshop
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
         mode: "0755"
 
     - name: Check shipping source
@@ -101,8 +114,8 @@
         src: "/tmp/shipping-{{ app_version }}.zip"
         dest: /app
         remote_src: true
-        owner: roboshop
-        group: roboshop
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
       when: artifact.changed or not source_file.stat.exists
       register: extracted
 
@@ -121,7 +134,7 @@
       environment:
         JAVA_HOME: "{{ java25_home }}"
         PATH: "{{ java25_home }}/bin:{{ ansible_env.PATH }}"
-      become_user: roboshop
+      become_user: "{{ app_user }}"
       when: >-
         extracted.changed | default(false)
         or not jar_file.stat.exists
@@ -138,8 +151,8 @@
         src: /app/target/shipping.jar
         dest: /app/shipping.jar
         remote_src: true
-        owner: roboshop
-        group: roboshop
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
         mode: "0644"
       when: built.changed | default(false)
       notify: Restart Shipping
@@ -196,7 +209,7 @@
             argv:
               - mysql
               - -u
-              - root
+              - "{{ mysql_admin_user }}"
               - --batch
               - --skip-column-names
               - -e
@@ -210,7 +223,7 @@
 
         - name: Load cities master data only if database is missing
           ansible.builtin.shell: >-
-            mysql -u root
+            mysql --user={{ mysql_admin_user | quote }}
             < "{{ mysql_sql_dir.path }}/master-data.sql"
           environment:
             MYSQL_PWD: "{{ mysql_root_password }}"
@@ -220,12 +233,12 @@
 
         - name: Configure Shipping database user from central credentials
           ansible.builtin.command:
-            argv: [mysql, --user=root, --batch]
+            argv: [mysql, "--user={{ mysql_admin_user }}", --batch, --binary-mode]
             stdin: |
               SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES';
-              CREATE USER IF NOT EXISTS 'shipping'@'%' IDENTIFIED BY '{{ shipping_db_password | replace("'", "''") }}';
-              ALTER USER 'shipping'@'%' IDENTIFIED BY '{{ shipping_db_password | replace("'", "''") }}';
-              GRANT ALL PRIVILEGES ON cities.* TO 'shipping'@'%';
+              CREATE USER IF NOT EXISTS '{{ shipping_db_user }}'@'%' IDENTIFIED BY '{{ shipping_db_password | replace("'", "''") }}';
+              ALTER USER '{{ shipping_db_user }}'@'%' IDENTIFIED BY '{{ shipping_db_password | replace("'", "''") }}';
+              GRANT ALL PRIVILEGES ON cities.* TO '{{ shipping_db_user }}'@'%';
           environment:
             MYSQL_PWD: "{{ mysql_root_password }}"
           delegate_to: "{{ groups['mysql'][0] }}"
@@ -259,7 +272,7 @@
           - mysql
           - "-h{{ mysql_host }}"
           - -u
-          - shipping
+          - "{{ shipping_db_user }}"
           - --batch
           - --skip-column-names
           - -e
@@ -277,7 +290,7 @@
 
     - name: Deploy Shipping systemd unit
       ansible.builtin.template:
-        src: shipping.service.j2
+        src: templates/shipping.service.j2
         dest: /etc/systemd/system/shipping.service
         owner: root
         group: root

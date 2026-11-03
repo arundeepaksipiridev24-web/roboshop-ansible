@@ -1,0 +1,14 @@
+# Login accounts and service identities. Passwords belong only in vault.yaml.
+ssh_user: ec2-user
+ssh_home: "/home/{{ ssh_user }}"
+ansible_user: "{{ ssh_user }}"
+ansible_become_user: root
+app_user: roboshop
+app_group: "{{ app_user }}"
+rabbitmq_user: roboshop
+mysql_admin_user: root
+shipping_db_user: shipping
+# Control node key path is independent of the target server login.
+control_ssh_dir: "{{ lookup('env', 'HOME') }}/.ssh"
+control_ssh_key: "{{ control_ssh_dir }}/id_rsa"
+ansible_ssh_private_key_file: "{{ control_ssh_key }}"

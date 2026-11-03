@@ -6,12 +6,6 @@
   connection: local
   gather_facts: false
   become: false
-  vars_files:
-    - group_vars/all/main.yaml
-  vars:
-    # Must match the VPC used by 01-create-ec2.yaml.
-    vpc_id: vpc-0e7b5f1d5107e4368
-
   tasks:
     - name: Find only this project's managed service instances
       amazon.aws.ec2_instance_info:

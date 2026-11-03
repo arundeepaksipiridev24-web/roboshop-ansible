@@ -1,0 +1,33 @@
+aws_region: us-east-1
+ami_id: ami-0055977a6e828a4f4
+instance_type: t3.micro
+domain_name: sodhichebutha.online
+common_sg: roboshop-common
+instances:
+- name: mongodb
+  security_group: roboshop-mongodb
+- name: redis
+  security_group: roboshop-redis
+- name: mysql
+  security_group: roboshop-mysql
+- name: rabbitmq
+  security_group: roboshop-rabbitmq
+- name: catalogue
+  security_group: roboshop-catalogue
+- name: user
+  security_group: roboshop-user
+- name: cart
+  security_group: roboshop-cart
+- name: shipping
+  security_group: roboshop-shipping
+- name: frontend
+  security_group: roboshop-frontend
+- name: payment
+  security_group: roboshop-payment
+- name: dispatch
+  security_group: roboshop-dispatch
+vpc_id: vpc-0e7b5f1d5107e4368
+subnet_id: subnet-03830e2ebcab777e8
+aws_cli: /usr/local/bin/aws
+route53_zone_id: Z047542739NDVFK4NND1
+route53_ttl: 1
