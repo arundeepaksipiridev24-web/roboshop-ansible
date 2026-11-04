@@ -1,0 +1,26 @@
+---
+- name: Deploy systemd service
+  ansible.builtin.template:
+    src: templates/{{ app_name }}.service.j2
+    dest: /etc/systemd/system/{{ app_name }}.service
+    mode: '0600'
+  notify: Restart application
+  no_log: true
+- name: Enable and start service
+  ansible.builtin.systemd:
+    name: '{{ app_name }}'
+    enabled: true
+    state: started
+    daemon_reload: true
+- name: Apply pending restarts
+  ansible.builtin.meta: flush_handlers
+- name: Check health endpoint
+  ansible.builtin.uri:
+    url: '{{ app_health_url }}'
+    status_code: 200
+    return_content: true
+  register: health
+  retries: 15
+  delay: 4
+  until: health.status == 200
+  when: app_health_url | length > 0

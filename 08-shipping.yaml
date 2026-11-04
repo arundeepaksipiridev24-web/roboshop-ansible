@@ -3,324 +3,227 @@
   hosts: shipping
   become: true
   gather_facts: true
-
   vars:
-    shipping_url: "{{ artifact_base_url }}/shipping-{{ app_version }}.zip"
-
+    app_name: shipping
+    app_entry_path: /app/pom.xml
+    app_health_url: http://127.0.0.1:8080/actuator/health
   tasks:
-    - name: Validate database account identifier
+  - name: Validate database account identifier
+    ansible.builtin.assert:
+      that:
+      - shipping_db_user is match('^[A-Za-z0-9_]+$')
+      - mysql_admin_user is match('^[A-Za-z0-9_]+$')
+      fail_msg: Database usernames must use letters, numbers and underscores
+  - name: Enable Maven 3.9 module
+    ansible.builtin.command:
+      argv:
+      - dnf
+      - module
+      - enable
+      - maven:3.9
+      - -y
+    changed_when: false
+  - name: Install Maven Java 25 MySQL client and unzip
+    ansible.builtin.dnf:
+      name:
+      - maven
+      - java-25-openjdk-devel
+      - mysql
+      - unzip
+      state: present
+  - name: Find Java 25 executable
+    ansible.builtin.shell: find /usr/lib/jvm \( -type f -o -type l \) -path '*/bin/java' | grep 'java-25' | head
+      -1
+    register: java25_bin
+    changed_when: false
+    failed_when: java25_bin.stdout | trim == ''
+  - name: Derive Java 25 home
+    ansible.builtin.set_fact:
+      java25_home: '{{ java25_bin.stdout | trim | dirname | dirname }}'
+  - name: Check current default Java
+    ansible.builtin.command:
+      argv:
+      - readlink
+      - -f
+      - /usr/bin/java
+    register: current_java
+    changed_when: false
+  - name: Configure default Java 25
+    ansible.builtin.command:
+      argv:
+      - alternatives
+      - --set
+      - java
+      - '{{ java25_bin.stdout | trim }}'
+    when: (current_java.stdout | trim) != (java25_bin.stdout | trim)
+  - name: Persist JAVA_HOME
+    ansible.builtin.copy:
+      dest: /etc/profile.d/java.sh
+      content: 'export JAVA_HOME={{ java25_home }}
+
+        '
+      mode: '0644'
+  - name: Create account and deploy application archive
+    ansible.builtin.import_tasks: tasks/application.yaml
+  - name: Check deployed shipping jar
+    ansible.builtin.stat:
+      path: /app/shipping.jar
+    register: jar_file
+  - name: Build Shipping jar
+    ansible.builtin.command:
+      argv:
+      - mvn
+      - clean
+      - package
+      chdir: /app
+    environment:
+      JAVA_HOME: '{{ java25_home }}'
+      PATH: '{{ java25_home }}/bin:{{ ansible_env.PATH }}'
+    become_user: '{{ app_user }}'
+    when: extracted.changed | default(false) or not jar_file.stat.exists
+    register: built
+  - name: Check built jar
+    ansible.builtin.stat:
+      path: /app/target/shipping.jar
+    register: built_jar
+    when: built.changed | default(false)
+  - name: Install shipping jar
+    ansible.builtin.copy:
+      src: /app/target/shipping.jar
+      dest: /app/shipping.jar
+      remote_src: true
+      owner: '{{ app_user }}'
+      group: '{{ app_group }}'
+      mode: '0644'
+    when: built.changed | default(false)
+    notify: Restart application
+  - name: Check shipping SQL files
+    ansible.builtin.stat:
+      path: '{{ item }}'
+    loop:
+    - /app/db/master-data.sql
+    register: shipping_sql_files
+  - name: Validate shipping SQL files
+    ansible.builtin.assert:
+      that:
+      - item.stat.exists
+      - item.stat.isreg
+      fail_msg: Missing required Shipping SQL file {{ item.item }}
+    loop: '{{ shipping_sql_files.results }}'
+    loop_control:
+      label: '{{ item.item }}'
+  - name: Read shipping SQL files
+    ansible.builtin.slurp:
+      src: '{{ item }}'
+    loop:
+    - /app/db/master-data.sql
+    register: shipping_sql_contents
+    no_log: true
+  - name: Create temporary SQL directory on MySQL server
+    ansible.builtin.tempfile:
+      state: directory
+      prefix: shipping-sql-
+    delegate_to: '{{ groups[''mysql''][0] }}'
+    register: mysql_sql_dir
+  - name: Copy SQL files to MySQL server
+    ansible.builtin.copy:
+      content: '{{ item.content | b64decode }}'
+      dest: '{{ mysql_sql_dir.path }}/{{ item.source | basename }}'
+      owner: root
+      group: root
+      mode: '0600'
+    delegate_to: '{{ groups[''mysql''][0] }}'
+    loop: '{{ shipping_sql_contents.results }}'
+    loop_control:
+      label: '{{ item.source | basename }}'
+    no_log: true
+  - name: Initialize Shipping database on MySQL server
+    block:
+    - name: Check cities database exists
+      ansible.builtin.command:
+        argv:
+        - mysql
+        - -u
+        - '{{ mysql_admin_user }}'
+        - --batch
+        - --skip-column-names
+        - -e
+        - SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME='cities'
+      environment:
+        MYSQL_PWD: '{{ mysql_root_password }}'
+      delegate_to: '{{ groups[''mysql''][0] }}'
+      register: cities_db
+      changed_when: false
+      no_log: true
+    - name: Load cities master data only if database is missing
+      ansible.builtin.shell: mysql --user={{ mysql_admin_user | quote }} < "{{ mysql_sql_dir.path }}/master-data.sql"
+      environment:
+        MYSQL_PWD: '{{ mysql_root_password }}'
+      delegate_to: '{{ groups[''mysql''][0] }}'
+      when: cities_db.stdout | trim != 'cities'
+      no_log: true
+    - name: Configure Shipping database user from central credentials
+      ansible.builtin.command:
+        argv:
+        - mysql
+        - --user={{ mysql_admin_user }}
+        - --batch
+        - --binary-mode
+        stdin: 'SET SESSION sql_mode = ''NO_BACKSLASH_ESCAPES'';
+
+          CREATE USER IF NOT EXISTS ''{{ shipping_db_user }}''@''%'' IDENTIFIED BY ''{{ shipping_db_password | replace("''",
+          "''''") }}'';
+
+          ALTER USER ''{{ shipping_db_user }}''@''%'' IDENTIFIED BY ''{{ shipping_db_password | replace("''", "''''")
+          }}'';
+
+          GRANT ALL PRIVILEGES ON cities.* TO ''{{ shipping_db_user }}''@''%'';
+
+          '
+      environment:
+        MYSQL_PWD: '{{ mysql_root_password }}'
+      delegate_to: '{{ groups[''mysql''][0] }}'
+      register: shipping_user_setup
+      failed_when: false
+      no_log: true
+    - name: Confirm Shipping database user configuration
       ansible.builtin.assert:
         that:
-          - shipping_db_user is match('^[A-Za-z0-9_]+$')
-          - mysql_admin_user is match('^[A-Za-z0-9_]+$')
-        fail_msg: Database usernames must use letters, numbers and underscores
-
-    - name: Enable Maven 3.9 module
-      ansible.builtin.command:
-        argv:
-          - dnf
-          - module
-          - enable
-          - maven:3.9
-          - -y
-      changed_when: false
-
-    - name: Install Maven Java 25 MySQL client and unzip
-      ansible.builtin.dnf:
-        name:
-          - maven
-          - java-25-openjdk-devel
-          - mysql
-          - unzip
-        state: present
-
-    - name: Find Java 25 executable
-      ansible.builtin.shell: >-
-        find /usr/lib/jvm
-        \( -type f -o -type l \)
-        -path '*/bin/java'
-        | grep 'java-25'
-        | head -1
-      register: java25_bin
-      changed_when: false
-      failed_when: java25_bin.stdout | trim == ''
-
-    - name: Derive Java 25 home
-      ansible.builtin.set_fact:
-        java25_home: "{{ java25_bin.stdout | trim | dirname | dirname }}"
-
-    - name: Check current default Java
-      ansible.builtin.command:
-        argv:
-          - readlink
-          - -f
-          - /usr/bin/java
-      register: current_java
-      changed_when: false
-
-    - name: Configure default Java 25
-      ansible.builtin.command:
-        argv:
-          - alternatives
-          - --set
-          - java
-          - "{{ java25_bin.stdout | trim }}"
-      when: >-
-        (current_java.stdout | trim)
-        != (java25_bin.stdout | trim)
-
-    - name: Persist JAVA_HOME
-      ansible.builtin.copy:
-        dest: /etc/profile.d/java.sh
-        content: "export JAVA_HOME={{ java25_home }}\n"
-        mode: "0644"
-
-    - name: Create application group
-      ansible.builtin.group:
-        name: "{{ app_group }}"
-        system: true
-
-    - name: Create roboshop user
-      ansible.builtin.user:
-        name: "{{ app_user }}"
-        group: "{{ app_group }}"
-        system: true
-        home: /app
-        create_home: false
-        shell: /sbin/nologin
-
-    - name: Create app directory
+        - shipping_user_setup.rc == 0
+        fail_msg: 'Shipping database user setup failed (client exit {{ shipping_user_setup.rc }}; MySQL error codes:
+          {{ shipping_user_setup.stderr | default('''') | regex_findall(''ERROR ([0-9]+)'') | join('', '') }}).
+          Check root credentials for error 1045, MySQL socket/service for 2002, and account privileges for 1044
+          or 1227.'
+        success_msg: Shipping database user and privileges configured
+    always:
+    - name: Remove temporary SQL files from MySQL server
       ansible.builtin.file:
-        path: /app
-        state: directory
-        owner: "{{ app_user }}"
-        group: "{{ app_group }}"
-        mode: "0755"
-
-    - name: Check shipping source
-      ansible.builtin.stat:
-        path: /app/pom.xml
-      register: source_file
-
-    - name: Download Shipping artifact
-      ansible.builtin.get_url:
-        url: "{{ shipping_url }}"
-        dest: "/tmp/shipping-{{ app_version }}.zip"
-        mode: "0644"
-      register: artifact
-
-    - name: Extract Shipping artifact
-      ansible.builtin.unarchive:
-        src: "/tmp/shipping-{{ app_version }}.zip"
-        dest: /app
-        remote_src: true
-        owner: "{{ app_user }}"
-        group: "{{ app_group }}"
-      when: artifact.changed or not source_file.stat.exists
-      register: extracted
-
-    - name: Check deployed shipping jar
-      ansible.builtin.stat:
-        path: /app/shipping.jar
-      register: jar_file
-
-    - name: Build Shipping jar
-      ansible.builtin.command:
-        argv:
-          - mvn
-          - clean
-          - package
-        chdir: /app
-      environment:
-        JAVA_HOME: "{{ java25_home }}"
-        PATH: "{{ java25_home }}/bin:{{ ansible_env.PATH }}"
-      become_user: "{{ app_user }}"
-      when: >-
-        extracted.changed | default(false)
-        or not jar_file.stat.exists
-      register: built
-
-    - name: Check built jar
-      ansible.builtin.stat:
-        path: /app/target/shipping.jar
-      register: built_jar
-      when: built.changed | default(false)
-
-    - name: Install shipping jar
-      ansible.builtin.copy:
-        src: /app/target/shipping.jar
-        dest: /app/shipping.jar
-        remote_src: true
-        owner: "{{ app_user }}"
-        group: "{{ app_group }}"
-        mode: "0644"
-      when: built.changed | default(false)
-      notify: Restart Shipping
-
-    - name: Check shipping SQL files
-      ansible.builtin.stat:
-        path: "{{ item }}"
-      loop:
-        - /app/db/master-data.sql
-      register: shipping_sql_files
-
-    - name: Validate shipping SQL files
-      ansible.builtin.assert:
-        that:
-          - item.stat.exists
-          - item.stat.isreg
-        fail_msg: "Missing required Shipping SQL file {{ item.item }}"
-      loop: "{{ shipping_sql_files.results }}"
-      loop_control:
-        label: "{{ item.item }}"
-
-    - name: Read shipping SQL files
-      ansible.builtin.slurp:
-        src: "{{ item }}"
-      loop:
-        - /app/db/master-data.sql
-      register: shipping_sql_contents
-      no_log: true
-
-    - name: Create temporary SQL directory on MySQL server
-      ansible.builtin.tempfile:
-        state: directory
-        prefix: shipping-sql-
-      delegate_to: "{{ groups['mysql'][0] }}"
-      register: mysql_sql_dir
-
-    - name: Copy SQL files to MySQL server
-      ansible.builtin.copy:
-        content: "{{ item.content | b64decode }}"
-        dest: "{{ mysql_sql_dir.path }}/{{ item.source | basename }}"
-        owner: root
-        group: root
-        mode: "0600"
-      delegate_to: "{{ groups['mysql'][0] }}"
-      loop: "{{ shipping_sql_contents.results }}"
-      loop_control:
-        label: "{{ item.source | basename }}"
-      no_log: true
-
-    - name: Initialize Shipping database on MySQL server
-      block:
-        - name: Check cities database exists
-          ansible.builtin.command:
-            argv:
-              - mysql
-              - -u
-              - "{{ mysql_admin_user }}"
-              - --batch
-              - --skip-column-names
-              - -e
-              - "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME='cities'"
-          environment:
-            MYSQL_PWD: "{{ mysql_root_password }}"
-          delegate_to: "{{ groups['mysql'][0] }}"
-          register: cities_db
-          changed_when: false
-          no_log: true
-
-        - name: Load cities master data only if database is missing
-          ansible.builtin.shell: >-
-            mysql --user={{ mysql_admin_user | quote }}
-            < "{{ mysql_sql_dir.path }}/master-data.sql"
-          environment:
-            MYSQL_PWD: "{{ mysql_root_password }}"
-          delegate_to: "{{ groups['mysql'][0] }}"
-          when: cities_db.stdout | trim != 'cities'
-          no_log: true
-
-        - name: Configure Shipping database user from central credentials
-          ansible.builtin.command:
-            argv: [mysql, "--user={{ mysql_admin_user }}", --batch, --binary-mode]
-            stdin: |
-              SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES';
-              CREATE USER IF NOT EXISTS '{{ shipping_db_user }}'@'%' IDENTIFIED BY '{{ shipping_db_password | replace("'", "''") }}';
-              ALTER USER '{{ shipping_db_user }}'@'%' IDENTIFIED BY '{{ shipping_db_password | replace("'", "''") }}';
-              GRANT ALL PRIVILEGES ON cities.* TO '{{ shipping_db_user }}'@'%';
-          environment:
-            MYSQL_PWD: "{{ mysql_root_password }}"
-          delegate_to: "{{ groups['mysql'][0] }}"
-          register: shipping_user_setup
-          failed_when: false
-          no_log: true
-
-        - name: Confirm Shipping database user configuration
-          ansible.builtin.assert:
-            that:
-              - shipping_user_setup.rc == 0
-            fail_msg: >-
-              Shipping database user setup failed (client exit
-              {{ shipping_user_setup.rc }}; MySQL error codes:
-              {{ shipping_user_setup.stderr | default('') | regex_findall('ERROR ([0-9]+)') | join(', ') }}).
-              Check root credentials for error 1045, MySQL socket/service for
-              2002, and account privileges for 1044 or 1227.
-            success_msg: Shipping database user and privileges configured
-
-      always:
-        - name: Remove temporary SQL files from MySQL server
-          ansible.builtin.file:
-            path: "{{ mysql_sql_dir.path }}"
-            state: absent
-          delegate_to: "{{ groups['mysql'][0] }}"
-          when: mysql_sql_dir.path is defined
-
-    - name: Verify Shipping database authentication
-      ansible.builtin.command:
-        argv:
-          - mysql
-          - "-h{{ mysql_host }}"
-          - -u
-          - "{{ shipping_db_user }}"
-          - --batch
-          - --skip-column-names
-          - -e
-          - "SELECT 1"
-          - cities
-      environment:
-        MYSQL_PWD: "{{ shipping_db_password }}"
-      register: shipping_db_login
-      changed_when: false
-      no_log: true
-
-    - name: Confirm Shipping database access
-      ansible.builtin.debug:
-        msg: "Shipping can authenticate to the cities database"
-
-    - name: Deploy Shipping systemd unit
-      ansible.builtin.template:
-        src: templates/shipping.service.j2
-        dest: /etc/systemd/system/shipping.service
-        owner: root
-        group: root
-        mode: "0600"
-      no_log: true
-      notify: Restart Shipping
-
-    - name: Start Shipping
-      ansible.builtin.systemd:
-        name: shipping
-        enabled: true
-        state: started
-        daemon_reload: true
-
-    - name: Apply pending restarts
-      ansible.builtin.meta: flush_handlers
-
-    - name: Verify Shipping health
-      ansible.builtin.uri:
-        url: http://127.0.0.1:8080/actuator/health
-        status_code: 200
-        return_content: true
-      register: shipping_health
-      retries: 15
-      delay: 4
-      until: shipping_health.status == 200
-
+        path: '{{ mysql_sql_dir.path }}'
+        state: absent
+      delegate_to: '{{ groups[''mysql''][0] }}'
+      when: mysql_sql_dir.path is defined
+  - name: Verify Shipping database authentication
+    ansible.builtin.command:
+      argv:
+      - mysql
+      - -h{{ mysql_host }}
+      - -u
+      - '{{ shipping_db_user }}'
+      - --batch
+      - --skip-column-names
+      - -e
+      - SELECT 1
+      - cities
+    environment:
+      MYSQL_PWD: '{{ shipping_db_password }}'
+    register: shipping_db_login
+    changed_when: false
+    no_log: true
+  - name: Confirm Shipping database access
+    ansible.builtin.debug:
+      msg: Shipping can authenticate to the cities database
+  - name: Configure service and verify health
+    ansible.builtin.import_tasks: tasks/service.yaml
   handlers:
-    - name: Restart Shipping
-      ansible.builtin.systemd:
-        name: shipping
-        daemon_reload: true
-        state: restarted
+  - name: Load application restart handler
+    ansible.builtin.import_tasks: handlers/application.yaml

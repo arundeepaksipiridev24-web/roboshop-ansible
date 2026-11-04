@@ -29,3 +29,13 @@ OS account; changing RabbitMQ/Shipping usernames creates the configured account
 and updates clients, but does not remove previous accounts or migrate data.
 Shipping usernames must use letters, numbers and underscores.
 The local .local/credentials.yaml backup remains ignored and is never loaded.
+
+## Teardown
+
+`ansible-playbook delete-instances.yaml --check` previews DNS and instance deletion.
+`ansible-playbook delete-instances.yaml` deletes the configured service A records
+and the frontend root-domain A record, then terminates matching tagged instances.
+DNS cleanup also works when instances were already deleted manually. The names
+in the configured instances list are treated as application-owned DNS names.
+Alias, routing-policy records and unrelated records are excluded. The hosted
+zone remains. Existing cached DNS answers may persist until their TTL expires.

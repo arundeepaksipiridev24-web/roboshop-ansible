@@ -3,131 +3,122 @@
   hosts: mysql
   become: true
   gather_facts: false
-
   tasks:
-    - name: Enable MySQL 8.4 module
-      ansible.builtin.command:
-        argv:
-          - dnf
-          - module
-          - enable
-          - mysql:8.4
-          - -y
-      changed_when: false
+  - name: Enable MySQL 8.4 module
+    ansible.builtin.command:
+      argv:
+      - dnf
+      - module
+      - enable
+      - mysql:8.4
+      - -y
+    changed_when: false
+  - name: Install MySQL 8.4 server
+    ansible.builtin.dnf:
+      name: mysql-server
+      state: present
+  - name: Start and enable MySQL service
+    ansible.builtin.systemd:
+      name: mysqld
+      state: started
+      enabled: true
+  - name: Check MySQL root login with configured password
+    ansible.builtin.command:
+      argv:
+      - mysql
+      - -u
+      - '{{ mysql_admin_user }}'
+      - --batch
+      - --skip-column-names
+      - -e
+      - SELECT 1;
+    environment:
+      MYSQL_PWD: '{{ mysql_root_password }}'
+    register: mysql_password_login
+    changed_when: false
+    failed_when: false
+    no_log: true
+  - name: Check passwordless root login
+    ansible.builtin.command:
+      argv:
+      - mysql
+      - -u
+      - '{{ mysql_admin_user }}'
+      - --batch
+      - --skip-column-names
+      - -e
+      - SELECT 1;
+    environment:
+      MYSQL_PWD: ''
+    register: mysql_passwordless_login
+    changed_when: false
+    failed_when: false
+    no_log: true
+    when: mysql_password_login.rc != 0
+  - name: Configure initial MySQL root password
+    ansible.builtin.command:
+      argv:
+      - mysql
+      - --user={{ mysql_admin_user }}
+      - --batch
+      - --binary-mode
+      stdin: 'SET SESSION sql_mode = ''NO_BACKSLASH_ESCAPES'';
 
-    - name: Install MySQL 8.4 server
-      ansible.builtin.dnf:
-        name: mysql-server
-        state: present
+        ALTER USER ''{{ mysql_admin_user }}''@''localhost'' IDENTIFIED BY ''{{ mysql_root_password | replace("''",
+        "''''") }}'';
 
-    - name: Start and enable MySQL service
-      ansible.builtin.systemd:
-        name: mysqld
-        state: started
-        enabled: true
-
-    - name: Check MySQL root login with configured password
-      ansible.builtin.command:
-        argv:
-          - mysql
-          - -u
-          - "{{ mysql_admin_user }}"
-          - --batch
-          - --skip-column-names
-          - -e
-          - "SELECT 1;"
-      environment:
-        MYSQL_PWD: "{{ mysql_root_password }}"
-      register: mysql_password_login
-      changed_when: false
-      failed_when: false
-      no_log: true
-
-    - name: Check passwordless root login
-      ansible.builtin.command:
-        argv:
-          - mysql
-          - -u
-          - "{{ mysql_admin_user }}"
-          - --batch
-          - --skip-column-names
-          - -e
-          - "SELECT 1;"
-      environment:
-        MYSQL_PWD: ""
-      register: mysql_passwordless_login
-      changed_when: false
-      failed_when: false
-      no_log: true
-      when: mysql_password_login.rc != 0
-
-    - name: Configure initial MySQL root password
-      ansible.builtin.command:
-        argv:
-          - mysql_secure_installation
-          - --set-root-pass
-          - "{{ mysql_root_password }}"
-      when:
-        - mysql_password_login.rc != 0
-        - mysql_passwordless_login.rc | default(1) == 0
-      no_log: true
-
-    - name: Verify MySQL root authentication
-      ansible.builtin.command:
-        argv:
-          - mysql
-          - -u
-          - "{{ mysql_admin_user }}"
-          - --batch
-          - --skip-column-names
-          - -e
-          - "SELECT 1;"
-      environment:
-        MYSQL_PWD: "{{ mysql_root_password }}"
-      register: final_root_check
-      changed_when: false
-      failed_when: false
-      no_log: true
-
-    - name: Confirm MySQL root authentication
-      ansible.builtin.assert:
-        that:
-          - final_root_check.rc == 0
-          - final_root_check.stdout | trim == '1'
-        fail_msg: >-
-          MySQL root authentication failed.
-          The existing MySQL root password may be
-          different from mysql_root_password in group_vars/all/vault.yaml.
-          Verify the actual root credentials.
-        success_msg: "MySQL root authentication successful"
-
-    - name: Verify MySQL version
-      ansible.builtin.command:
-        argv:
-          - mysql
-          - --version
-      register: mysql_version
-      changed_when: false
-
-    - name: Display MySQL version
-      ansible.builtin.debug:
-        msg: "{{ mysql_version.stdout }}"
-
-    - name: Verify MySQL service status
-      ansible.builtin.command:
-        argv:
-          - systemctl
-          - is-active
-          - mysqld
-      register: mysql_service
-      changed_when: false
-
-    - name: Display MySQL service status
-      ansible.builtin.debug:
-        msg: "MySQL service: {{ mysql_service.stdout }}"
-
-    - name: Display MySQL configuration completion
-      ansible.builtin.debug:
-        msg: >-
-          MySQL installation and authentication
-          verification completed successfully.
+        '
+    when:
+    - mysql_password_login.rc != 0
+    - mysql_passwordless_login.rc | default(1) == 0
+    no_log: true
+    environment:
+      MYSQL_PWD: ''
+  - name: Verify MySQL root authentication
+    ansible.builtin.command:
+      argv:
+      - mysql
+      - -u
+      - '{{ mysql_admin_user }}'
+      - --batch
+      - --skip-column-names
+      - -e
+      - SELECT 1;
+    environment:
+      MYSQL_PWD: '{{ mysql_root_password }}'
+    register: final_root_check
+    changed_when: false
+    failed_when: false
+    no_log: true
+  - name: Confirm MySQL root authentication
+    ansible.builtin.assert:
+      that:
+      - final_root_check.rc == 0
+      - final_root_check.stdout | trim == '1'
+      fail_msg: MySQL root authentication failed. The existing MySQL root password may be different from mysql_root_password
+        in group_vars/all/vault.yaml. Verify the actual root credentials.
+      success_msg: MySQL root authentication successful
+  - name: Verify MySQL version
+    ansible.builtin.command:
+      argv:
+      - mysql
+      - --version
+    register: mysql_version
+    changed_when: false
+  - name: Display MySQL version
+    ansible.builtin.debug:
+      msg: '{{ mysql_version.stdout }}'
+  - name: Verify MySQL service status
+    ansible.builtin.command:
+      argv:
+      - systemctl
+      - is-active
+      - mysqld
+    register: mysql_service
+    changed_when: false
+  - name: Display MySQL service status
+    ansible.builtin.debug:
+      msg: 'MySQL service: {{ mysql_service.stdout }}'
+  - name: Display MySQL configuration completion
+    ansible.builtin.debug:
+      msg: MySQL installation and authentication verification completed successfully.

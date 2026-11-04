@@ -4,100 +4,13 @@
   become: true
   vars:
     app_name: user
-    app_url: "{{ artifact_base_url }}/user-{{ app_version }}.zip"
+    app_entry_path: /app/server.js
+    app_health_url: http://127.0.0.1:8080/health
   tasks:
-    - name: Disable default Node.js module
-      ansible.builtin.command: dnf module disable nodejs -y
-      changed_when: false
-    - name: Enable Node.js 24 module
-      ansible.builtin.command: dnf module enable nodejs:24 -y
-      changed_when: false
-    - name: Install Node.js and unzip
-      ansible.builtin.dnf:
-        name: [nodejs, unzip]
-        state: present
-    - name: Check Node version
-      ansible.builtin.command: node --version
-      register: node_version
-      changed_when: false
-      failed_when: (node_version.stdout | regex_replace('^v', '')).split('.')[0] | int < 24
-    - name: Create application group
-      ansible.builtin.group:
-        name: "{{ app_group }}"
-        system: true
-
-    - name: Create application user
-      ansible.builtin.user:
-        name: "{{ app_user }}"
-        group: "{{ app_group }}"
-        system: true
-        home: /app
-        create_home: false
-        shell: /sbin/nologin
-    - name: Create application directory
-      ansible.builtin.file:
-        path: /app
-        state: directory
-        owner: "{{ app_user }}"
-        group: "{{ app_group }}"
-        mode: '0755'
-    - name: Check application entry point
-      ansible.builtin.stat:
-        path: /app/server.js
-      register: app_entry
-    - name: Check node_modules directory
-      ansible.builtin.stat:
-        path: /app/node_modules
-      register: node_modules
-    - name: Download application
-      ansible.builtin.get_url:
-        url: "{{ app_url }}"
-        dest: "/tmp/user-{{ app_version }}.zip"
-        mode: '0644'
-      register: artifact
-    - name: Extract application when artifact changes or app is missing
-      ansible.builtin.unarchive:
-        src: "/tmp/user-{{ app_version }}.zip"
-        dest: /app
-        remote_src: true
-        owner: "{{ app_user }}"
-        group: "{{ app_group }}"
-      when: artifact.changed or not (app_entry.stat.exists | default(false))
-      register: extracted
-      notify: Restart application
-    - name: Install npm dependencies
-      ansible.builtin.command: npm install --no-audit --no-fund
-      args:
-        chdir: /app
-      become_user: "{{ app_user }}"
-      when: extracted.changed or not (node_modules.stat.exists | default(false))
-      notify: Restart application
-    - name: Deploy systemd service
-      ansible.builtin.template:
-        src: templates/user.service.j2
-        dest: /etc/systemd/system/user.service
-        mode: '0644'
-      notify: Restart application
-    - name: Enable and start service
-      ansible.builtin.systemd:
-        name: user
-        enabled: true
-        state: started
-        daemon_reload: true
-    - name: Apply pending restarts
-      ansible.builtin.meta: flush_handlers
-    - name: Check health endpoint
-      ansible.builtin.uri:
-        url: http://127.0.0.1:8080/health
-        status_code: 200
-        return_content: true
-      register: health
-      retries: 10
-      delay: 3
-      until: health.status == 200
+  - name: Install Node.js and deploy application
+    ansible.builtin.import_tasks: tasks/nodejs.yaml
+  - name: Configure service and verify health
+    ansible.builtin.import_tasks: tasks/service.yaml
   handlers:
-    - name: Restart application
-      ansible.builtin.systemd:
-        name: user
-        state: restarted
-        daemon_reload: true
+  - name: Load application restart handler
+    ansible.builtin.import_tasks: handlers/application.yaml

@@ -1,7 +1,7 @@
 ---
 # Run separately: ansible-playbook delete-instances.yaml
 # Preview only: ansible-playbook delete-instances.yaml --check
-- name: Terminate Ansible-managed RoboShop application instances
+- name: Delete RoboShop DNS records and managed application instances
   hosts: localhost
   connection: local
   gather_facts: false
@@ -38,6 +38,83 @@
       loop_control:
         label: "{{ item.instance_id }}"
 
+    - name: Read the configured hosted zone
+      ansible.builtin.command:
+        argv: ["{{ aws_cli }}", route53, get-hosted-zone, --id, "{{ route53_zone_id }}", --output, json]
+      register: teardown_zone
+      changed_when: false
+      check_mode: false
+
+    - name: Verify the hosted zone matches the configured domain
+      ansible.builtin.assert:
+        that:
+          - (teardown_zone.stdout | from_json).HostedZone.Name == (domain_name ~ '.')
+        fail_msg: Hosted zone does not match domain_name; nothing has been deleted
+
+    - name: Read the current DNS records including their actual TTL and values
+      ansible.builtin.command:
+        argv: ["{{ aws_cli }}", route53, list-resource-record-sets, --hosted-zone-id, "{{ route53_zone_id }}", --output, json]
+      register: teardown_dns
+      changed_when: false
+      check_mode: false
+
+    - name: Initialize the exact list of application DNS names
+      ansible.builtin.set_fact:
+        teardown_dns_names: "{{ [domain_name ~ '.'] if 'frontend' in (instances | map(attribute='name') | list) else [] }}"
+        teardown_dns_changes: []
+
+    - name: Add each configured service DNS name
+      ansible.builtin.set_fact:
+        teardown_dns_names: "{{ teardown_dns_names + [item.name ~ '.' ~ domain_name ~ '.'] }}"
+      loop: "{{ instances }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Select only the simple application A records created by provisioning
+      ansible.builtin.set_fact:
+        teardown_dns_changes: "{{ teardown_dns_changes + [{'Action': 'DELETE', 'ResourceRecordSet': item}] }}"
+      loop: "{{ (teardown_dns.stdout | from_json).ResourceRecordSets }}"
+      loop_control:
+        label: "{{ item.Name }} {{ item.Type }}"
+      when:
+        - item.Name in teardown_dns_names
+        - item.Type == 'A'
+        - item.ResourceRecords is defined
+        - item.SetIdentifier is not defined
+        - item.AliasTarget is not defined
+
+    - name: Show exactly which DNS records will be deleted
+      ansible.builtin.debug:
+        msg: "{{ item.ResourceRecordSet.Name }} -> {{ item.ResourceRecordSet.ResourceRecords | map(attribute='Value') | list }}"
+      loop: "{{ teardown_dns_changes }}"
+      loop_control:
+        label: "{{ item.ResourceRecordSet.Name }}"
+
+    - name: Delete matching application DNS records using their exact current data
+      ansible.builtin.command:
+        argv:
+          - "{{ aws_cli }}"
+          - route53
+          - change-resource-record-sets
+          - --hosted-zone-id
+          - "{{ route53_zone_id }}"
+          - --change-batch
+          - "{{ {'Changes': teardown_dns_changes} | to_json }}"
+          - --output
+          - json
+      register: teardown_dns_deleted
+      when:
+        - teardown_dns_changes | length > 0
+        - not ansible_check_mode
+
+    - name: Wait for Route 53 to apply the deletion
+      ansible.builtin.command:
+        argv: ["{{ aws_cli }}", route53, wait, resource-record-sets-changed, --id, "{{ (teardown_dns_deleted.stdout | from_json).ChangeInfo.Id }}"]
+      changed_when: false
+      when:
+        - teardown_dns_changes | length > 0
+        - not ansible_check_mode
+
     - name: Terminate the discovered application instances by explicit ID
       amazon.aws.ec2_instance:
         region: "{{ aws_region }}"
@@ -54,5 +131,6 @@
         msg: >-
           {{ 'Preview only; no instances terminated.' if ansible_check_mode
              else ('Terminated ' ~ (teardown_instances.instances | length | string) ~ ' matching RoboShop instance(s).') }}
-          DNS records, security groups and the VPC are retained.
+          {{ teardown_dns_changes | length }} application A record(s) selected for deletion.
+          The hosted zone, unrelated DNS records, security groups and VPC are retained.
           Instances without the required project/management tags are excluded.

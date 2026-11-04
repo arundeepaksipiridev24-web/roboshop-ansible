@@ -1,0 +1,41 @@
+---
+- name: Disable default Node.js module
+  ansible.builtin.command: dnf module disable nodejs -y
+  changed_when: false
+- name: Enable Node.js 24 module
+  ansible.builtin.command: dnf module enable nodejs:24 -y
+  changed_when: false
+- name: Install Node.js and unzip
+  ansible.builtin.dnf:
+    name:
+    - nodejs
+    - unzip
+    state: present
+- name: Check Node version
+  ansible.builtin.command: node --version
+  register: node_version
+  changed_when: false
+  failed_when: (node_version.stdout | regex_replace('^v', '')).split('.')[0] | int < 24
+- name: Create account and deploy application archive
+  ansible.builtin.import_tasks: tasks/application.yaml
+- name: Check node_modules directory
+  ansible.builtin.stat:
+    path: /app/.dependencies-{{ app_version }}
+  register: node_modules
+- name: Install npm dependencies
+  ansible.builtin.command: npm install --no-audit --no-fund
+  args:
+    chdir: /app
+  become_user: '{{ app_user }}'
+  when: extracted.changed or not node_modules.stat.exists
+  notify: Restart application
+- name: Mark successful dependency installation
+  ansible.builtin.file:
+    path: /app/.dependencies-{{ app_version }}
+    state: touch
+    owner: '{{ app_user }}'
+    group: '{{ app_group }}'
+    mode: '0644'
+    modification_time: preserve
+    access_time: preserve
+  when: extracted.changed or not node_modules.stat.exists
